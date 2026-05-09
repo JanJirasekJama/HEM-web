@@ -1,0 +1,12 @@
+services:
+  hem-housekeeping:
+    build: .
+    container_name: hem-housekeeping
+    restart: unless-stopped
+    ports:
+      - "4173:4173"
+    environment:
+      PORT: "4173"
+    volumes:
+      - ./data.json:/app/data.json
+      - ./photos:/app/photos

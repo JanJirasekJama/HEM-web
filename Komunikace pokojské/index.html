@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="cs">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HEM - Housekeeping</title>
+    <link rel="icon" type="image/png" href="assets/hem-logo.png">
+    <link rel="apple-touch-icon" href="assets/hem-logo.png">
+    <link rel="stylesheet" href="styles.css?v=20260509-6">
+  </head>
+  <body>
+    <section class="login-screen" id="loginScreen">
+      <form class="login-card" id="loginForm">
+        <img class="login-logo" src="assets/hem-logo.png" alt="HEM logo">
+        <p class="eyebrow">HEM - Housekeeping</p>
+        <h1>Přihlášení</h1>
+        <label>
+          Jméno
+          <input id="loginUsername" autocomplete="username" required>
+        </label>
+        <label>
+          Heslo
+          <input id="loginPassword" type="password" autocomplete="current-password" required>
+        </label>
+        <p class="error" id="loginError"></p>
+        <button class="primary" type="submit">Přihlásit</button>
+      </form>
+    </section>
+
+    <div class="app-shell hidden" id="appShell">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <img class="app-logo" src="assets/hem-logo.png" alt="HEM logo">
+          <div>
+            <p class="eyebrow">Housekeeping efficiency management</p>
+            <h1>HEM - Housekeeping</h1>
+          </div>
+        </div>
+        <div class="user-box">
+          <span id="todayLabel"></span>
+          <strong id="currentUserLabel"></strong>
+          <span class="sync-status" id="syncStatus"></span>
+          <div class="user-actions">
+            <button type="button" id="settingsButton">Nastavení</button>
+            <button type="button" id="logoutButton">Odhlásit</button>
+          </div>
+        </div>
+      </header>
+
+      <nav class="tabs" id="tabs" aria-label="Hlavní části aplikace"></nav>
+
+      <main>
+        <section class="view" id="adminView">
+          <div class="layout three-columns">
+            <form class="panel" id="accountForm">
+              <div class="panel-heading">
+                <h2>Účty</h2>
+                <span class="hint">Admin nastavuje přístupy</span>
+              </div>
+              <input type="hidden" id="accountId">
+              <label>Jméno<input id="accountUsername" required></label>
+              <label>Heslo<input id="accountPassword" type="password" autocomplete="new-password" placeholder="Při úpravě nechte prázdné pro zachování hesla"></label>
+              <label>
+                Role
+                <select id="accountRole">
+                  <option value="reception">Recepční</option>
+                  <option value="housekeeping">Pokojská</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
+              <button class="primary" type="submit">Uložit úcet</button>
+              <button type="button" id="cancelAccountEdit">Zrušit úpravu</button>
+            </form>
+
+            <form class="panel" id="adminRoomForm">
+              <div class="panel-heading">
+                <h2>Pokoje</h2>
+                <span class="hint">Jednotlivé pokoje nebo rozsah</span>
+              </div>
+              <label>Čísla pokojů<input id="adminRoomNumbers" placeholder="101, 102, 205-208" required></label>
+              <button class="primary" type="submit">Přidat pokoje</button>
+            </form>
+
+            <form class="panel" id="minibarItemForm">
+              <div class="panel-heading">
+                <h2>Položky minibaru</h2>
+                <span class="hint">Co může pokojská zapsat</span>
+              </div>
+              <label>Název položky<input id="minibarItemName" required></label>
+              <button class="primary" type="submit">Přidat položku</button>
+            </form>
+
+            <form class="panel" id="photoTaskForm">
+              <div class="panel-heading">
+                <h2>Položky k focení</h2>
+                <span class="hint">Recepce z nich vybíra</span>
+              </div>
+              <label>Název fotky<input id="photoTaskName" required></label>
+              <button class="primary" type="submit">Přidat fotopoložku</button>
+            </form>
+          </div>
+
+          <div class="layout two-columns admin-lists">
+            <section class="panel">
+              <div class="panel-heading"><h2>Seznam účtů</h2></div>
+              <div class="stack" id="accountsList"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading"><h2>Nastavení provozu</h2></div>
+              <div class="split-list">
+                <div>
+                  <h3>Pokoje</h3>
+                  <div class="chip-list" id="adminRoomsList"></div>
+                </div>
+                <div>
+                  <h3>Minibar</h3>
+                  <div class="chip-list" id="adminMinibarList"></div>
+                </div>
+                <div>
+                  <h3>Fotky</h3>
+                  <div class="chip-list" id="adminPhotoTasksList"></div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="receptionView">
+          <div class="layout two-columns">
+            <form class="panel" id="assignmentForm">
+              <div class="panel-heading">
+                <h2 id="assignmentFormTitle">Zadat úklid</h2>
+                <span class="hint">Recepční vybíra i povinné fotky</span>
+              </div>
+              <input type="hidden" id="assignmentId">
+
+              <fieldset>
+                <legend>Pokoje k úklidu</legend>
+                <div class="room-check-grid" id="assignmentRooms"></div>
+              </fieldset>
+
+              <div class="field-grid">
+                <label>
+                  Typ práce
+                  <select id="workType">
+                    <option>Příjezd</option>
+                    <option>Odjezd</option>
+                    <option>Průběh</option>
+                    <option>Jiné úkoly</option>
+                  </select>
+                </label>
+                <label>
+                  Priorita
+                  <select id="priority">
+                    <option>Normální</option>
+                    <option>Vysoká</option>
+                    <option>Nízká</option>
+                  </select>
+                </label>
+              </div>
+
+              <fieldset>
+                <legend>Co musí pokojská vyfotit, pokud něco vyberete</legend>
+                <div class="check-grid" id="requiredPhotoChecks"></div>
+              </fieldset>
+
+              <label>
+                Vlastní fotoúkol
+                <input id="customPhotoTask" placeholder="Například minibar, balkon, koupelna detail">
+              </label>
+
+              <label>
+                Poznámka pro pokojskou
+                <textarea id="note" rows="4" placeholder="Například přistýlka, extra ručníky, host odjíždí později..."></textarea>
+              </label>
+
+              <button class="primary" type="submit" id="assignmentSubmit">Přidat do denního seznamu</button>
+              <button class="hidden" type="button" id="cancelAssignmentEdit">Zrušit úpravy</button>
+            </form>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <h2>Dnešní přehled</h2>
+                <span class="hint" id="summaryText">0 pokojů</span>
+              </div>
+              <div class="metrics">
+                <div><strong id="metricOpen">0</strong><span>čeká</span></div>
+                <div><strong id="metricProgress">0</strong><span>uklízí se</span></div>
+                <div><strong id="metricDone">0</strong><span>hotovo</span></div>
+              </div>
+              <div class="tools">
+                <button type="button" id="clearDone">Skrýt zkontrolované</button>
+                <button type="button" class="danger" id="resetWork">Vymazat denní práci</button>
+              </div>
+              <section class="laundry-control" aria-label="Prádelna">
+                <div>
+                  <p class="eyebrow">Prádelna</p>
+                  <strong id="laundryStatusText">Bez aktivního echa</strong>
+                </div>
+                <div class="tools">
+                  <button type="button" class="primary" id="sendLaundryEcho">Poslat echo</button>
+                  <button type="button" class="danger hidden" id="cancelLaundryEcho">Zrušit echo</button>
+                </div>
+              </section>
+            </section>
+          </div>
+
+          <section class="list-section">
+            <div class="section-heading">
+              <h2>Pokoje a úkoly</h2>
+              <div class="filters">
+                <button class="filter active" data-filter="all">Vše</button>
+                <button class="filter" data-filter="Čeká">Čeká</button>
+                <button class="filter" data-filter="Uklízí se">Uklízí se</button>
+                <button class="filter" data-filter="Hotovo">Hotovo</button>
+              </div>
+            </div>
+            <div class="room-grid" id="receptionRooms"></div>
+          </section>
+        </section>
+
+        <section class="view" id="housekeepingView">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Pro pokojskou</p>
+              <h2>Pokoje k úklidu</h2>
+            </div>
+            <span class="hint">Konec úklidu jde odkliknout až po splnění fotek</span>
+          </div>
+          <div id="laundryAlert"></div>
+          <div class="room-grid" id="housekeepingRooms"></div>
+          <section class="panel housekeeping-extra-work">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Výkaz</p>
+                <h2>Výkaz dodatkových prací</h2>
+              </div>
+              <span class="hint">Uloží se do historie společně s úklidy</span>
+            </div>
+            <form id="additionalWorkForm" class="additional-work-form">
+              <label>
+                Co bylo hotovo navíc
+                <textarea id="additionalWorkText" rows="3" placeholder="Například vyluxovaná chodba, otřené větráky, parapety na chodbě..." required></textarea>
+              </label>
+              <button class="primary" type="submit">Uložit do výkazu</button>
+            </form>
+            <div class="additional-work-list" id="additionalWorkList"></div>
+          </section>
+          <div class="focused-room hidden" id="housekeepingDetail"></div>
+        </section>
+
+        <section class="view" id="revisionView">
+          <div class="section-heading revision-hero">
+            <div>
+              <p class="eyebrow">Mezi pokojskými</p>
+              <h2>Revize</h2>
+              <p class="hint">Sdílené úkoly mezi pokojskými. Autor se neukládá, splnění ano.</p>
+            </div>
+            <button type="button" class="primary revision-create-button" id="openRevisionTaskDialog">Nová revize</button>
+          </div>
+
+          <div class="revision-toolbar">
+            <strong id="revisionSummary">0 úkolů</strong>
+            <div class="revision-tabs" role="tablist" aria-label="Revize">
+              <button type="button" class="revision-filter active" data-revision-filter="open">Ke splnění</button>
+              <button type="button" class="revision-filter" data-revision-filter="done">Splněné</button>
+            </div>
+          </div>
+
+          <section class="list-section">
+            <div class="revision-list" id="revisionTasks"></div>
+          </section>
+        </section>
+
+        <section class="view" id="historyView">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Archiv</p>
+              <h2>Historie úklidů</h2>
+            </div>
+            <div class="tools inline">
+              <div class="month-picker" aria-label="Výběr měsíce historie">
+                <button type="button" id="historyPrevMonth" aria-label="Předchozí měsíc">‹</button>
+                <select id="historyMonthSelect" aria-label="Měsíc"></select>
+                <select id="historyYearSelect" aria-label="Rok"></select>
+                <button type="button" id="historyNextMonth" aria-label="Další měsíc">›</button>
+              </div>
+              <button type="button" id="exportHistoryPdf">Export PDF</button>
+            </div>
+          </div>
+          <div class="table-wrap" id="historyRooms"></div>
+        </section>
+
+        <section class="view" id="minibarView">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Odpisy</p>
+              <h2>Minibary</h2>
+            </div>
+            <div class="tools inline">
+              <div class="month-picker" aria-label="Výběr měsíce">
+                <button type="button" id="minibarPrevMonth" aria-label="Předchozí měsíc">‹</button>
+                <select id="minibarMonthSelect" aria-label="Měsíc"></select>
+                <select id="minibarYearSelect" aria-label="Rok"></select>
+                <button type="button" id="minibarNextMonth" aria-label="Další měsíc">›</button>
+              </div>
+              <button type="button" id="exportPdf">Export PDF</button>
+              <button type="button" class="danger" id="clearMinibar">Vymazat minibary</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Pokoj</th>
+                  <th>Datum</th>
+                  <th>Položky</th>
+                </tr>
+              </thead>
+              <tbody id="minibarRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="view" id="settingsView">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Aplikace</p>
+              <h2>Nastavení</h2>
+            </div>
+            <span class="hint" id="settingsVersion">v.0.1.0</span>
+          </div>
+
+          <div class="layout two-columns settings-layout">
+            <section class="panel">
+              <div class="panel-heading">
+                <h2>Vzhled účtu</h2>
+                <span class="hint" id="settingsCurrentUser"></span>
+              </div>
+              <label>
+                Barevný režim
+                <select id="colorScheme">
+                  <option value="light">Light mode</option>
+                  <option value="dark">Dark mode</option>
+                </select>
+              </label>
+            </section>
+
+            <section class="panel developer-panel">
+              <div class="panel-heading">
+                <h2>Vývojář</h2>
+              </div>
+              <div class="developer-card">
+                <img class="developer-logo" src="assets/jamasoft-logo.png" alt="JAMAsoft logo">
+                <strong>JAMAsoft</strong>
+                <a href="https://jamasoft.cz" target="_blank" rel="noopener">jamasoft.cz</a>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="detail-modal" id="roomDetailDialog">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow" id="detailEyebrow">Detail pokoje</p>
+          <h2 id="detailTitle"></h2>
+        </div>
+        <button type="button" id="closeDetail">Zavřít</button>
+      </div>
+      <div id="detailBody"></div>
+    </dialog>
+
+    <dialog class="detail-modal revision-dialog" id="revisionTaskDialog">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow">Revize</p>
+          <h2>Nový úkol</h2>
+        </div>
+        <button type="button" id="closeRevisionTaskDialog">Zavřít</button>
+      </div>
+      <form id="revisionTaskForm">
+        <label>Místo<input id="revisionLocation" placeholder="1. patro" required></label>
+        <label>Úkol<textarea id="revisionText" rows="4" placeholder="Utřít prach za televizí" required></textarea></label>
+        <button class="primary" type="submit">Přidat revizi</button>
+      </form>
+    </dialog>
+
+    <template id="roomCardTemplate">
+      <article class="room-card">
+        <div class="room-card-head">
+          <div>
+            <span class="room-number"></span>
+            <span class="badge work-type"></span>
+          </div>
+          <span class="status"></span>
+        </div>
+        <p class="note"></p>
+        <div class="requirements"></div>
+        <div class="card-meta"></div>
+        <div class="actions"></div>
+      </article>
+    </template>
+
+    <script src="app.js?v=20260509-8"></script>
+  </body>
+</html>

@@ -1,0 +1,193 @@
+{
+  "users": [
+    {
+      "id": "admin",
+      "username": "admin",
+      "passwordHash": "pbkdf2-sha256$210000$BqFFeEX0fE3ienEv6qurbg$tvwWS-__TjCBGJPjuUbu-55Q3Vq0mOCmhEuqXsyERs0",
+      "role": "admin",
+      "colorScheme": "light"
+    },
+    {
+      "id": "id-mox1rrxi-d780b9783eedbeb669238a84705817ba",
+      "username": "recepce",
+      "passwordHash": "pbkdf2-sha256$210000$z_fn3qOeg4hY8JPfaF6JCw$pDmK8cStMSjlYs3vfy34XyBCHMXW88Rdut5ypEOEvs8",
+      "role": "reception",
+      "colorScheme": "light"
+    },
+    {
+      "id": "id-mox1sxnx-3eb645e53dbaac9001c082223b074278",
+      "username": "pokojska",
+      "passwordHash": "pbkdf2-sha256$210000$tn2KtOMF06rqw15YNMxQoA$uaU2-FP_TswVHJI2rsOSKYnurnHvX1jn4mYNaPeMy_o",
+      "role": "housekeeping",
+      "colorScheme": "light"
+    }
+  ],
+  "hotelRooms": [
+    "101",
+    "102",
+    "103",
+    "104",
+    "105",
+    "106",
+    "107",
+    "Deluxe",
+    "109",
+    "210",
+    "211",
+    "212",
+    "213",
+    "214",
+    "215",
+    "216",
+    "Afrika - 217",
+    "218",
+    "Orient Love",
+    "320",
+    "321",
+    "322",
+    "VIP"
+  ],
+  "minibarItems": [
+    "Voda",
+    "Coca Cola",
+    "RedBull",
+    "Finlandia Vodka",
+    "Jagermeister",
+    "Jameson",
+    "Pilsner Urquell",
+    "Stella",
+    "Bílé víno",
+    "Červené víno",
+    "Bohemia sekt",
+    "Preclíky",
+    "Peanuts oříšky",
+    "Chipsy",
+    "Kukuřice",
+    "Cashew"
+  ],
+  "photoTasks": [
+    "Postel",
+    "Koupelna",
+    "Podlaha",
+    "Minibar",
+    "Vyrovnané prostěradlo",
+    "Prach na stolcích",
+    "Koš",
+    "Vířivka"
+  ],
+  "assignments": [],
+  "minibars": [],
+  "history": [
+    {
+      "type": "laundry",
+      "id": "id-moy31eg6-b4c46dd89f8f5478b14adec01f467d1b",
+      "status": "Zkontrolováno",
+      "createdAt": "2026-05-09T08:29:00.390Z",
+      "acceptedAt": "2026-05-09T08:29:05.910Z",
+      "finishedAt": "2026-05-09T08:29:14.157Z",
+      "completedAt": "2026-05-09T08:29:14.157Z",
+      "housekeeperId": "id-mox1sxnx-3eb645e53dbaac9001c082223b074278",
+      "housekeeperName": "pokojska",
+      "photos": [
+        {
+          "id": "id-moy31p2r-bd416bfcad929902037e7dfd891a46d3",
+          "task": "Skříň s prádlem",
+          "src": "/api/photos/70646f6fdfc5497ecfdce7f9cc15c8e59e1a16f14c59088a2094c3f17b07d1c4.jpg",
+          "fullSrc": "/api/photos/70646f6fdfc5497ecfdce7f9cc15c8e59e1a16f14c59088a2094c3f17b07d1c4.jpg",
+          "createdAt": "2026-05-09T08:29:14.163Z"
+        }
+      ],
+      "historyId": "id-moy31p2r-23d2b4b608113fe9fc0b25f658878121",
+      "savedAt": "2026-05-09T08:29:14.163Z",
+      "checkedAt": "2026-05-09T08:29:39.366Z",
+      "checkedById": "id-mox1rrxi-d780b9783eedbeb669238a84705817ba",
+      "checkedByName": "recepce"
+    }
+  ],
+  "revisionTasks": [
+    {
+      "id": "id-moxxu09p-7bc57ad088b55aa02809200acdfff1fe",
+      "location": "1. patro",
+      "text": "vyleštit okna",
+      "status": "done",
+      "createdAt": "2026-05-09T06:03:17.341Z",
+      "completedAt": "2026-05-09T06:03:23.714Z",
+      "completedById": "id-mox1sxnx-3eb645e53dbaac9001c082223b074278",
+      "completedByName": "pokojska",
+      "note": "",
+      "photos": []
+    },
+    {
+      "id": "id-moxxvsy3-73a6321d641b47e18aae3b7d3ce761a7",
+      "location": "2. Patro",
+      "text": "Vyleštit okna",
+      "status": "done",
+      "createdAt": "2026-05-09T06:04:41.163Z",
+      "completedAt": "2026-05-09T06:05:17.087Z",
+      "completedById": "id-mox1sxnx-3eb645e53dbaac9001c082223b074278",
+      "completedByName": "pokojska",
+      "note": "Vyleštěné, je třeba dodělat 217",
+      "photos": [
+        {
+          "id": "id-moxxwknz-9e2a242f100aaf2a2f0450cc29353549",
+          "task": "2. Patro",
+          "src": "/api/photos/42739752789b2eab27e288845ea9cad23b8cf866bdf57415dcc8cbe41b4ba038.jpg",
+          "fullSrc": "/api/photos/42739752789b2eab27e288845ea9cad23b8cf866bdf57415dcc8cbe41b4ba038.jpg",
+          "createdAt": "2026-05-09T06:05:17.087Z"
+        }
+      ]
+    }
+  ],
+  "laundryTasks": [
+    {
+      "id": "id-moy22adi-25ed0236cf7ced1bd666fb3d45d863a2",
+      "status": "cancelled",
+      "createdAt": "2026-05-09T08:01:42.150Z",
+      "acceptedAt": null,
+      "acceptedById": null,
+      "acceptedByName": "",
+      "completedAt": null,
+      "cancelledAt": "2026-05-09T08:14:07.727Z",
+      "photos": []
+    },
+    {
+      "id": "id-moy2io2j-a32647390222ce7650014e10f64fb068",
+      "status": "done",
+      "createdAt": "2026-05-09T08:14:26.395Z",
+      "acceptedAt": "2026-05-09T08:14:32.142Z",
+      "acceptedById": "id-mox1sxnx-3eb645e53dbaac9001c082223b074278",
+      "acceptedByName": "pokojska",
+      "completedAt": "2026-05-09T08:14:38.476Z",
+      "cancelledAt": null,
+      "photos": [
+        {
+          "id": "id-moy2ixea-c8e1fa57ca5eca9d8ce7b9b48478df25",
+          "task": "Skříň s prádlem",
+          "src": "/api/photos/403355b0f7732c29781f3235c5bb02ad67b87f2c0a176b1472230e456401fe6e.jpg",
+          "fullSrc": "/api/photos/403355b0f7732c29781f3235c5bb02ad67b87f2c0a176b1472230e456401fe6e.jpg",
+          "createdAt": "2026-05-09T08:14:38.482Z"
+        }
+      ]
+    },
+    {
+      "id": "id-moy31eg6-b4c46dd89f8f5478b14adec01f467d1b",
+      "status": "done",
+      "createdAt": "2026-05-09T08:29:00.390Z",
+      "acceptedAt": "2026-05-09T08:29:05.910Z",
+      "acceptedById": "id-mox1sxnx-3eb645e53dbaac9001c082223b074278",
+      "acceptedByName": "pokojska",
+      "completedAt": "2026-05-09T08:29:14.157Z",
+      "cancelledAt": null,
+      "photos": [
+        {
+          "id": "id-moy31p2r-bd416bfcad929902037e7dfd891a46d3",
+          "task": "Skříň s prádlem",
+          "src": "/api/photos/70646f6fdfc5497ecfdce7f9cc15c8e59e1a16f14c59088a2094c3f17b07d1c4.jpg",
+          "fullSrc": "/api/photos/70646f6fdfc5497ecfdce7f9cc15c8e59e1a16f14c59088a2094c3f17b07d1c4.jpg",
+          "createdAt": "2026-05-09T08:29:14.163Z"
+        }
+      ]
+    }
+  ],
+  "sessionUserId": null
+}

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 150" role="img" aria-labelledby="title">
+  <title>JAMAsoft logo</title>
+  <rect width="150" height="150" fill="#8f8f8c"/>
+  <g fill="#111">
+    <path d="M4 31h17v23H4v-8h9V31H4z"/>
+    <path d="M23 16h9l12 11v27h-9V32l-7-7h-5z"/>
+    <path d="M50 27h25l11 10v17h-9V41l-6-6H50z"/>
+    <path d="M50 16h9v10h-9z"/>
+    <path d="M87 91h18v8H87z"/>
+    <path d="M108 91h22l13 11v25h-9v-21l-7-7h-10v28h-9z"/>
+    <path d="M132 91h14v8h-14z"/>
+  </g>
+  <g fill="none" stroke="#0c64c8" stroke-width="5" stroke-linecap="round">
+    <path d="M60 24h26c17 0 31 13 31 30s-14 30-31 30H59"/>
+    <path d="M88 34c12 1 20 10 20 21s-9 20-21 20H57c-9 0-16 7-16 16s7 16 16 16h42"/>
+    <path d="M57 86h40"/>
+    <path d="M57 96h42"/>
+  </g>
+  <g fill="#ff711f" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="700" letter-spacing="13">
+    <text x="12" y="139">soft</text>
+  </g>
+</svg>
