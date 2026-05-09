@@ -1,0 +1,57 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      APP_BASE_URL: ${APP_BASE_URL:-http://127.0.0.1:8000}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://hem:${POSTGRES_PASSWORD:-hem}@postgres:5432/hem}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      SECRET_KEY: ${SECRET_KEY:-change-me}
+      FILE_STORAGE_ROOT: /data/files
+    volumes:
+      - hem_files:/data/files
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')\""]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: hem
+      POSTGRES_USER: hem
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hem}
+    volumes:
+      - hem_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hem -d hem"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - hem_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  hem_postgres:
+  hem_redis:
+  hem_files:
