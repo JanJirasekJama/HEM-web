@@ -108,6 +108,7 @@ Owner paths: `backend/app/modules/backups/**`, `backend/app/modules/migration/**
 Plan:
 - Implement manual ZIP backups, retention-aware listing/deletion, recovery point snapshots and basic restore metadata.
 - Implement housekeeping JSON migration from legacy `Komunikace pokojské/data.json` and photos folder into catalog/media/housekeeping-compatible data.
+- Implement legacy suite migration for old inventory, reception communication/cash and invoicing JSON directories, including mixed date formats and old `timestamp` messages.
 - Record migration results as audit-friendly import summaries.
 
 Tests: `backend/tests/test_backups_migration.py`

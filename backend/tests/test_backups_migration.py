@@ -66,3 +66,81 @@ def test_housekeeping_json_migration_preserves_rooms_users_history_and_photo_ref
     rooms = client.get("/api/catalog/hotel-rooms").json()
     assert {room["label"] for room in rooms} >= {"101", "VIP"}
 
+
+def test_legacy_suite_migration_imports_messages_inventory_cash_and_invoice_archives(
+    client: TestClient,
+    admin_auth: dict[str, str],
+    tmp_path: Path,
+) -> None:
+    inventory_dir = tmp_path / "HEM_InventoryManager"
+    communication_dir = tmp_path / "HEM_Komunikace"
+    invoicing_dir = tmp_path / "HEM_ZalohoveFaktury"
+    inventory_dir.mkdir()
+    communication_dir.mkdir()
+    invoicing_dir.mkdir()
+
+    (inventory_dir / "wellness_items.json").write_text(
+        json.dumps([{"id": 1, "name": "Čaj", "unit": "ks", "active": True, "category": "nápoje"}]),
+        encoding="utf-8",
+    )
+    (inventory_dir / "wellness_data.json").write_text(
+        json.dumps({"2026-05-09": {"1": 2, "note": "starý wellness odpis"}}),
+        encoding="utf-8",
+    )
+    (communication_dir / "messages.json").write_text(
+        json.dumps([{"timestamp": "2026-05-09 08:30:00", "user": "admin", "message": "Starý recepční vzkaz"}]),
+        encoding="utf-8",
+    )
+    (communication_dir / "cash_diary.json").write_text(
+        json.dumps([{"date": "09.05.2026", "user": "admin", "cash_start": 1000, "cash_end": 1250, "notes": "starý deník"}]),
+        encoding="utf-8",
+    )
+    (invoicing_dir / "services.json").write_text(
+        json.dumps({"Wellness": [{"nazev": "Vířivka", "cena": 2000, "aktivni": True, "typ": "wellness"}]}),
+        encoding="utf-8",
+    )
+    (invoicing_dir / "splatnosti.json").write_text(
+        json.dumps([{"nazev": "24 hodin", "hodiny": 24, "jednotka": "hodiny", "aktivni": True}]),
+        encoding="utf-8",
+    )
+    (invoicing_dir / "archiv_data.json").write_text(
+        json.dumps(
+            [
+                {
+                    "cislo_faktury": "260001",
+                    "jmeno": "Host Migrace",
+                    "termin": "09.05.2026 18:00",
+                    "datum_vytvoreni": "09.05.2026 09:00:00",
+                    "stav": 2,
+                    "splatnost": "24 hodin",
+                    "due_date": "10.05.2026 09:00",
+                    "cena": 2000,
+                    "sluzba": "Vířivka",
+                    "email": "host@example.test",
+                    "telefon": "+420123456789",
+                    "vydal": "admin",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    migrated = client.post(
+        "/api/migration/legacy-suite",
+        headers=admin_auth,
+        json={
+            "inventory_path": str(inventory_dir),
+            "communication_path": str(communication_dir),
+            "invoicing_path": str(invoicing_dir),
+        },
+    )
+    assert migrated.status_code == 200
+    assert migrated.json()["messages_imported"] == 1
+    assert migrated.json()["inventory_entries_imported"] == 1
+    assert migrated.json()["cash_entries_imported"] == 1
+    assert migrated.json()["invoices_imported"] == 1
+
+    assert client.get("/api/messages/history?text=starý").json()[0]["content_text"] == "- Starý recepční vzkaz"
+    assert client.get("/api/inventory/reports/monthly?module=wellness&month=2026-05").json()["totals"]["Čaj"]["quantity"] == 2
+    assert client.get("/api/cash/diary?date_from=2026-05-01&date_to=2026-05-31").json()[0]["difference"] == 250
+    assert client.get("/api/invoices/archive").json()[0]["invoice_number"] == "260001"
