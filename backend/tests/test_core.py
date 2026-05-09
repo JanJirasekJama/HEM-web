@@ -54,6 +54,51 @@ def test_admin_can_manage_users_but_protected_admin_and_self_delete_are_blocked(
     deleted = client.delete(f"/api/users/{user_id}", headers=admin_auth)
     assert deleted.status_code == 200
 
+    second_admin = client.post(
+        "/api/users",
+        headers=admin_auth,
+        json={"username": "admin2", "password": "admin22", "role_name": "admin"},
+    )
+    assert second_admin.status_code == 200
+    login = client.post("/api/auth/login", json={"username": "admin2", "password": "admin22"})
+    self_delete_headers = {"X-CSRF-Token": login.json()["csrf_token"]}
+    self_delete = client.delete(f"/api/users/{second_admin.json()['id']}", headers=self_delete_headers)
+    assert self_delete.status_code == 400
+
+
+def test_passwords_are_argon2_and_last_login_is_recorded(client: TestClient, admin_auth: dict[str, str]) -> None:
+    created = client.post(
+        "/api/users",
+        headers=admin_auth,
+        json={"username": "ucetni", "password": "ucetni1", "role_name": "ucetni"},
+    )
+    assert created.status_code == 200
+
+    login = client.post("/api/auth/login", json={"username": "ucetni", "password": "ucetni1"})
+    assert login.status_code == 200
+
+    me = client.get("/api/auth/me")
+    assert me.status_code == 200
+    assert me.json()["last_login_at"] is not None
+    assert "password" not in me.json()
+
+
+def test_non_admin_cannot_manage_users(client: TestClient, admin_auth: dict[str, str]) -> None:
+    client.post(
+        "/api/users",
+        headers=admin_auth,
+        json={"username": "recepcni", "password": "recepcni1", "role_name": "recepcni"},
+    )
+    login = client.post("/api/auth/login", json={"username": "recepcni", "password": "recepcni1"})
+    headers = {"X-CSRF-Token": login.json()["csrf_token"]}
+
+    response = client.post(
+        "/api/users",
+        headers=headers,
+        json={"username": "blocked", "password": "blocked1", "role_name": "pokojska"},
+    )
+    assert response.status_code == 403
+
 
 def test_settings_are_json_documents(client: TestClient, admin_auth: dict[str, str]) -> None:
     current = client.get("/api/settings/app")

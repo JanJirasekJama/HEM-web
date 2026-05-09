@@ -30,10 +30,10 @@ def test_due_terms_rooms_photo_types_and_email_recipients(client: TestClient, ad
     due = client.post(
         "/api/catalog/due-terms",
         headers=admin_auth,
-        json={"name": "24 hodin", "value": 24, "unit": "hours", "active": True},
+        json={"name": "24 hodin", "value": 24, "unit": "hodiny", "active": True},
     )
     assert due.status_code == 200
-    assert due.json()["unit"] == "hours"
+    assert due.json()["unit"] == "hodiny"
 
     room = client.post("/api/catalog/hotel-rooms", headers=admin_auth, json={"label": "Afrika - 217", "sort_order": 217})
     assert room.status_code == 200
@@ -73,4 +73,3 @@ def test_inventory_item_catalog_separates_priced_inventory_from_housekeeping_che
     assert priced.json()["id"] != checklist.json()["id"]
     assert priced.json()["price"] == 55
     assert "price" not in checklist.json()
-

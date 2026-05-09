@@ -1,5 +1,11 @@
 from fastapi.testclient import TestClient
 
+VALID_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xff\xff?"
+    b"\x00\x05\xfe\x02\xfeA\xe2!\xbc\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
 
 def _housekeeper_auth(client: TestClient, admin_auth: dict[str, str]) -> dict[str, str]:
     created = client.post(
@@ -57,11 +63,19 @@ def test_assignment_workflow_requires_photos_creates_history_and_unique_minibar_
     blocked_finish = client.patch(f"/api/housekeeping/assignments/{assignment['id']}/finish", headers=housekeeper_auth)
     assert blocked_finish.status_code == 400
 
-    uploaded = client.post(
+    invalid_upload = client.post(
         f"/api/housekeeping/assignments/{assignment['id']}/photos",
         headers=housekeeper_auth,
         data={"task_label": "Postel", "photo_task_type_id": photo_type["id"]},
         files={"file": ("postel.jpg", b"fake-image", "image/jpeg")},
+    )
+    assert invalid_upload.status_code in {400, 415}
+
+    uploaded = client.post(
+        f"/api/housekeeping/assignments/{assignment['id']}/photos",
+        headers=housekeeper_auth,
+        data={"task_label": "Postel", "photo_task_type_id": photo_type["id"]},
+        files={"file": ("postel.png", VALID_PNG, "image/png")},
     )
     assert uploaded.status_code == 200
 
@@ -87,7 +101,7 @@ def test_revision_laundry_and_monthly_work_report(client: TestClient, admin_auth
         f"/api/housekeeping/revisions/{revision.json()['id']}/complete",
         headers=housekeeper_auth,
         data={"note": "Hotovo"},
-        files={"files": ("okno.jpg", b"fake-image", "image/jpeg")},
+        files={"files": ("okno.png", VALID_PNG, "image/png")},
     )
     assert completed_revision.status_code == 200
     assert completed_revision.json()["status"] == "done"
@@ -101,7 +115,7 @@ def test_revision_laundry_and_monthly_work_report(client: TestClient, admin_auth
     uploaded = client.post(
         f"/api/housekeeping/laundry/{laundry.json()['id']}/photos",
         headers=housekeeper_auth,
-        files={"file": ("pradlo.jpg", b"fake-image", "image/jpeg")},
+        files={"file": ("pradlo.png", VALID_PNG, "image/png")},
     )
     assert uploaded.status_code == 200
 
@@ -112,4 +126,3 @@ def test_revision_laundry_and_monthly_work_report(client: TestClient, admin_auth
     report = client.get("/api/housekeeping/reports/monthly-work?month=2026-05")
     assert report.status_code == 200
     assert report.json()["housekeepers"]["pokojska"]["laundry_count"] == 1
-

@@ -12,7 +12,7 @@ def test_dashboard_aggregates_user_tasks_cash_invoices_and_housekeeping(client: 
 
     category = client.post("/api/catalog/service-categories", headers=admin_auth, json={"name": "Wellness"}).json()
     service = client.post("/api/catalog/services", headers=admin_auth, json={"category_id": category["id"], "name": "Sauna", "price": 1500}).json()
-    due = client.post("/api/catalog/due-terms", headers=admin_auth, json={"name": "okamžitě", "value": 0, "unit": "hours"}).json()
+    due = client.post("/api/catalog/due-terms", headers=admin_auth, json={"name": "okamžitě", "value": 0, "unit": "hodiny"}).json()
     client.post("/api/invoices", headers=admin_auth, json={"customer_name": "Host", "service_id": service["id"], "event_at": "09.05.2026", "due_term_id": due["id"]})
 
     dashboard = client.get("/api/dashboard?date=2026-05-09&current_time=2026-05-09T21:00:00Z")
@@ -25,4 +25,3 @@ def test_dashboard_aggregates_user_tasks_cash_invoices_and_housekeeping(client: 
     assert body["cash"]["missing_evening_cash"] is True
     assert body["housekeeping"]["waiting"] == 1
     assert body["invoices"]["due_or_overdue"] >= 1
-

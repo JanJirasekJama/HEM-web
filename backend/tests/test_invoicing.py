@@ -8,7 +8,7 @@ def _service_and_due(client: TestClient, admin_auth: dict[str, str]) -> tuple[st
         headers=admin_auth,
         json={"category_id": category["id"], "name": "Vířivka", "type": "wellness", "price": 2000, "active": True},
     ).json()
-    due = client.post("/api/catalog/due-terms", headers=admin_auth, json={"name": "24 hodin", "value": 24, "unit": "hours"}).json()
+    due = client.post("/api/catalog/due-terms", headers=admin_auth, json={"name": "24 hodin", "value": 24, "unit": "hodiny"}).json()
     return service["id"], due["id"]
 
 
@@ -84,4 +84,3 @@ def test_invoice_payment_states_manual_toggles_and_csv_export(client: TestClient
     exported = client.get("/api/invoices/archive/export.csv")
     assert exported.status_code == 200
     assert "invoice_number" in exported.text
-

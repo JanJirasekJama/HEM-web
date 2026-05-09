@@ -9,12 +9,28 @@ Shared rules for every implementation agent:
 - Keep writes inside the owned module paths listed below. If a shared file must change, explain why before doing it.
 - Use Redis via `app.shared.notifications.NotificationQueue` for notification/event fan-out; never hand-roll a second queue.
 
+## Areas 1, 2: Core Auth, Users And Settings
+
+Owner paths: `backend/app/core/**`, `backend/app/shared/**`
+
+Status: implemented by the orchestrator before business-module delegation.
+
+Follow-up hardening:
+- Keep Argon2id as the canonical password hash and migrate legacy PBKDF2/SHA hashes on successful login.
+- Enforce protected admin deletion and self-deletion denial.
+- Keep role/permission metadata auditable and expose only safe user fields.
+- Settings are JSON documents protected by admin writes and authenticated reads.
+
+Tests: `backend/tests/test_core.py`
+
 ## Area 3: Catalogs
 
 Owner paths: `backend/app/modules/catalog/**`
 
 Plan:
+- Treat `catalog` as shared infrastructure with a stable public API, not as a private business dependency.
 - Implement catalog tables and REST endpoints for service categories, services, due terms, inventory items, hotel rooms, housekeeping minibar items, photo task types and email recipients.
+- Due term units use the domain values `hodiny` and `dny`; modules may expose localized labels separately if they add machine enums later.
 - Support active/inactive filtering while preserving direct reads of inactive historic items.
 - Keep catalog entities generic, without importing business module models.
 
@@ -116,4 +132,3 @@ Plan:
 - Include current user, today's message count, today's open task count, cash status, yesterday ending cash, invoice due warnings and housekeeping counters.
 
 Tests: `backend/tests/test_dashboard.py`
-

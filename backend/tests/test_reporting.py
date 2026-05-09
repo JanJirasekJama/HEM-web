@@ -8,7 +8,7 @@ def test_invoice_statistics_tax_report_and_exports(client: TestClient, admin_aut
         headers=admin_auth,
         json={"category_id": category["id"], "name": "Apartmá", "type": "ubytovani", "price": 3500},
     ).json()
-    due = client.post("/api/catalog/due-terms", headers=admin_auth, json={"name": "1 den", "value": 1, "unit": "days"}).json()
+    due = client.post("/api/catalog/due-terms", headers=admin_auth, json={"name": "1 den", "value": 1, "unit": "dny"}).json()
     client.post(
         "/api/invoices",
         headers=admin_auth,
@@ -58,4 +58,3 @@ def test_reporting_reads_inventory_monthly_totals(client: TestClient, admin_auth
     report = client.get("/api/reports/inventory/monthly?module=wellness&month=2026-05")
     assert report.status_code == 200
     assert report.json()["totals"]["Čaj"]["quantity"] == 4
-
