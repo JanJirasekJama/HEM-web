@@ -1,7 +1,9 @@
 import hashlib
+from io import BytesIO
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile, status
+from PIL import Image, UnidentifiedImageError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -27,6 +29,7 @@ def save_upload(
     content = upload.file.read()
     if len(content) > settings.upload_max_bytes:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large")
+    _validate_image_content(content, upload.content_type)
 
     digest = hashlib.sha256(content).hexdigest()
     suffix = ALLOWED_IMAGE_TYPES.get(upload.content_type or "", Path(upload.filename or "").suffix.lower() or ".bin")
@@ -50,3 +53,19 @@ def save_upload(
     db.refresh(media)
     return media
 
+
+def _validate_image_content(content: bytes, content_type: str | None) -> None:
+    expected = {
+        "image/jpeg": "JPEG",
+        "image/png": "PNG",
+        "image/webp": "WEBP",
+    }.get(content_type or "")
+    if expected is None:
+        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Unsupported file type")
+    try:
+        image = Image.open(BytesIO(content))
+        image.verify()
+    except (UnidentifiedImageError, OSError):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid image content") from None
+    if image.format != expected:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image content does not match declared type")
