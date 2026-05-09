@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import Settings, get_settings
+from app.core.router import router as core_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -21,8 +22,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok", "app": "hem"}
 
+    app.include_router(core_router)
+
     return app
 
 
 app = create_app()
-
