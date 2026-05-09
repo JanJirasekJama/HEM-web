@@ -1,0 +1,2 @@
+"""Legacy data migration module."""
+

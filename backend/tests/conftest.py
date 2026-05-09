@@ -11,6 +11,7 @@ from app.core.bootstrap import bootstrap_core
 from app.core.config import Settings
 from app.core.database import Base, get_db
 from app.main import create_app
+import app.models  # noqa: F401
 
 
 @pytest.fixture()
@@ -52,4 +53,3 @@ def admin_auth(client: TestClient) -> dict[str, str]:
     response = client.post("/api/auth/login", json={"username": "admin", "password": "061004"})
     assert response.status_code == 200
     return {"X-CSRF-Token": response.json()["csrf_token"]}
-
