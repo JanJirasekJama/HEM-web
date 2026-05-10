@@ -26,6 +26,10 @@ export type NotificationItem = {
   read_at?: string | null
 }
 
+type ApiRequestOptions = {
+  signal?: AbortSignal
+}
+
 export class ApiError extends Error {
   status: number
 
@@ -35,27 +39,29 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(path, { credentials: 'include' })
+export async function apiGet<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+  const response = await fetch(path, { credentials: 'include', signal: options.signal })
   if (!response.ok) throw new ApiError(response.status, await response.text())
   return response.json() as Promise<T>
 }
 
-export async function login(username: string, password: string): Promise<{ csrf_token: string; user: CurrentUser }> {
+export async function login(username: string, password: string, options: ApiRequestOptions = {}): Promise<{ csrf_token: string; user: CurrentUser }> {
   const response = await fetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
+    signal: options.signal,
     body: JSON.stringify({ username, password }),
   })
   if (!response.ok) throw new ApiError(response.status, 'Přihlášení se nepodařilo')
   return response.json()
 }
 
-export async function logout(csrfToken: string): Promise<void> {
+export async function logout(csrfToken: string, options: ApiRequestOptions = {}): Promise<void> {
   await fetch('/api/auth/logout', {
     method: 'POST',
     headers: { 'X-CSRF-Token': csrfToken },
     credentials: 'include',
+    signal: options.signal,
   })
 }

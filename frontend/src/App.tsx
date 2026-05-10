@@ -1,7 +1,12 @@
 import { DashboardShell } from '@/features/dashboard/DashboardShell'
+import { AppStateProvider } from '@/shared/auth/AppState'
 
 function App() {
-  return <DashboardShell />
+  return (
+    <AppStateProvider>
+      <DashboardShell />
+    </AppStateProvider>
+  )
 }
 
 export default App
