@@ -56,6 +56,9 @@ def test_assignment_workflow_requires_photos_creates_history_and_unique_minibar_
     started = client.patch(f"/api/housekeeping/assignments/{assignment['id']}/start", headers=housekeeper_auth)
     assert started.status_code == 200
     assert started.json()["status"] == "Uklizi se"
+    repeated_start = client.patch(f"/api/housekeeping/assignments/{assignment['id']}/start", headers=housekeeper_auth)
+    assert repeated_start.status_code == 200
+    assert repeated_start.json()["status"] == "Uklizi se"
 
     client.patch(f"/api/housekeeping/assignments/{assignment['id']}/pause", headers=housekeeper_auth)
     resumed = client.patch(f"/api/housekeeping/assignments/{assignment['id']}/resume", headers=housekeeper_auth)
@@ -202,6 +205,58 @@ def test_housekeeping_reception_and_work_permissions(client: TestClient, admin_a
 
     accountant_started = client.patch(f"/api/housekeeping/assignments/{assignment['id']}/pause", headers=accountant_auth)
     assert accountant_started.status_code == 403
+
+
+def test_housekeeping_state_lists_active_work_with_read_permissions(client: TestClient, admin_auth: dict[str, str]) -> None:
+    admin_auth = _login_auth(client, "admin", "061004")
+    room = client.post("/api/catalog/hotel-rooms", headers=admin_auth, json={"label": "104"}).json()
+    photo_type = client.post("/api/catalog/photo-task-types", headers=admin_auth, json={"name": "Koupelna"}).json()
+    reception_auth = _user_auth(client, admin_auth, "recepce", "recepcni")
+    housekeeper_auth = _housekeeper_auth(client, admin_auth)
+    accountant_auth = _user_auth(client, admin_auth, "ucetni", "ucetni")
+
+    created = client.post(
+        "/api/housekeeping/assignments",
+        headers=reception_auth,
+        json={"room_ids": [room["id"]], "work_type": "Odjezd", "priority": "Normalni", "required_photo_type_ids": [photo_type["id"]]},
+    )
+    assert created.status_code == 200
+    revision = client.post("/api/housekeeping/revisions", headers=reception_auth, json={"location": "Sklad", "text": "Doplnit ručníky"})
+    assert revision.status_code == 200
+    laundry = client.post("/api/housekeeping/laundry", headers=reception_auth)
+    assert laundry.status_code == 200
+
+    catalog = client.get("/api/catalog/housekeeping?active_only=true", headers=housekeeper_auth)
+    assert catalog.status_code == 200
+    assert set(catalog.json()) == {"hotel_rooms", "housekeeping_minibar_items", "photo_task_types"}
+
+    bootstrap = client.get("/api/catalog/bootstrap?active_only=true", headers=housekeeper_auth)
+    assert bootstrap.status_code == 200
+    assert bootstrap.json()["services"] == []
+    assert bootstrap.json()["email_recipients"] == []
+    assert bootstrap.json()["hotel_rooms"][0]["label"] == "104"
+    assert client.get("/api/catalog/services", headers=housekeeper_auth).status_code == 403
+    assert client.get("/api/catalog/due-terms", headers=housekeeper_auth).status_code == 403
+    assert client.get("/api/catalog/inventory-items", headers=housekeeper_auth).status_code == 403
+    assert client.get("/api/catalog/email-recipients", headers=housekeeper_auth).status_code == 403
+    assert client.get("/api/catalog/hotel-rooms", headers=housekeeper_auth).status_code == 200
+
+    state = client.get("/api/housekeeping/state", headers=housekeeper_auth)
+    assert state.status_code == 200
+    body = state.json()
+    assert body["assignments"][0]["room_label_snapshot"] == "104"
+    required_photo = body["assignments"][0]["required_photos"][0]
+    assert required_photo["photo_task_type_id"] == photo_type["id"]
+    assert required_photo["task_label_snapshot"] == "Koupelna"
+    assert required_photo["uploaded"] is False
+    assert body["revisions"][0]["id"] == revision.json()["id"]
+    assert body["laundry"][0]["id"] == laundry.json()["id"]
+    assert body["laundry"][0]["photo_uploaded"] is False
+
+    forbidden = client.get("/api/housekeeping/state", headers=accountant_auth)
+    assert forbidden.status_code == 403
+    forbidden_catalog = client.get("/api/catalog/housekeeping?active_only=true", headers=accountant_auth)
+    assert forbidden_catalog.status_code == 403
 
 
 def test_housekeeping_history_and_monthly_report_require_specific_read_permissions(client: TestClient, admin_auth: dict[str, str]) -> None:

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { housekeepingSampleData } from './sampleData'
 import type {
   AssignmentCreateDraft,
   AssignmentPhoto,
@@ -20,13 +19,33 @@ type CatalogResponse = {
   photo_task_types?: Array<{ id: string; name: string; label?: string }>
 }
 
+type HousekeepingStateResponse = Pick<HousekeepingWorkspaceData, 'assignments' | 'revisions' | 'laundry'>
+
+type HousekeepingLoadOptions = {
+  loadHistory?: boolean
+  loadReport?: boolean
+}
+
 const monthKey = new Date().toISOString().slice(0, 7)
 
-export function useHousekeepingWorkspace(initialData: HousekeepingWorkspaceData = housekeepingSampleData) {
-  const [data, setData] = useState<HousekeepingWorkspaceData>(initialData)
-  const [loading, setLoading] = useState(true)
+const emptyWorkspaceData: HousekeepingWorkspaceData = {
+  rooms: [],
+  minibarItems: [],
+  photoTaskTypes: [],
+  assignments: [],
+  revisions: [],
+  laundry: [],
+  history: [],
+  report: { month: monthKey, housekeepers: {} },
+}
+
+export function useHousekeepingWorkspace(initialData?: HousekeepingWorkspaceData, options: HousekeepingLoadOptions = {}) {
+  const [data, setData] = useState<HousekeepingWorkspaceData>(initialData ?? emptyWorkspaceData)
+  const [loading, setLoading] = useState(!initialData)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<Partial<Record<HousekeepingMutationName, boolean>>>({})
+  const loadHistory = options.loadHistory ?? false
+  const loadReport = options.loadReport ?? false
 
   const csrfToken = useMemo(() => sessionStorage.getItem('hem-csrf') || '', [])
 
@@ -41,32 +60,36 @@ export function useHousekeepingWorkspace(initialData: HousekeepingWorkspaceData 
 
   useEffect(() => {
     const controller = new AbortController()
-    Promise.allSettled([
-      apiJson<CatalogResponse>('/api/catalog?active_only=true', { signal: controller.signal }),
-      apiJson<AssignmentHistoryRowResponse[]>('/api/housekeeping/history?month=' + monthKey, { signal: controller.signal }),
-      apiJson<MonthlyWorkReport>('/api/housekeeping/reports/monthly-work?month=' + monthKey, { signal: controller.signal }),
+    Promise.all([
+      apiJson<CatalogResponse>('/api/catalog/housekeeping?active_only=true', { signal: controller.signal }),
+      apiJson<HousekeepingStateResponse>('/api/housekeeping/state', { signal: controller.signal }),
+      loadHistory ? apiJson<AssignmentHistoryRowResponse[]>('/api/housekeeping/history?month=' + monthKey, { signal: controller.signal }) : Promise.resolve([]),
+      loadReport ? apiJson<MonthlyWorkReport>('/api/housekeeping/reports/monthly-work?month=' + monthKey, { signal: controller.signal }) : Promise.resolve(emptyWorkspaceData.report),
     ])
-      .then(([catalog, history, report]) => {
+      .then(([catalog, state, history, report]) => {
         if (controller.signal.aborted) return
         setData((current) => ({
           ...current,
-          rooms: catalog.status === 'fulfilled' && catalog.value.hotel_rooms ? catalog.value.hotel_rooms.map((room) => ({ id: room.id, label: room.label || room.name || room.id })) : current.rooms,
-          minibarItems: catalog.status === 'fulfilled' && catalog.value.housekeeping_minibar_items ? catalog.value.housekeeping_minibar_items : current.minibarItems,
-          photoTaskTypes: catalog.status === 'fulfilled' && catalog.value.photo_task_types ? catalog.value.photo_task_types : current.photoTaskTypes,
-          history: history.status === 'fulfilled' ? history.value : current.history,
-          report: report.status === 'fulfilled' ? report.value : current.report,
+          rooms: catalog.hotel_rooms ? catalog.hotel_rooms.map((room) => ({ id: room.id, label: room.label || room.name || room.id })) : current.rooms,
+          minibarItems: catalog.housekeeping_minibar_items ?? current.minibarItems,
+          photoTaskTypes: catalog.photo_task_types ?? current.photoTaskTypes,
+          assignments: state.assignments,
+          revisions: state.revisions,
+          laundry: state.laundry,
+          history,
+          report,
         }))
         setError(null)
       })
       .catch((caught: unknown) => {
-        if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : 'Housekeeping data se nepodařilo načíst.')
+        if (!controller.signal.aborted) setError(normalizeError(caught))
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false)
       })
 
     return () => controller.abort()
-  }, [])
+  }, [loadHistory, loadReport])
 
   const createAssignments = useCallback(
     (draft: AssignmentCreateDraft) =>
@@ -231,6 +254,10 @@ async function apiJson<T = unknown>(path: string, init: (RequestInit & { csrfTok
   const response = await fetch(path, { ...init, headers, credentials: 'include' })
   if (!response.ok) throw new Error(await response.text())
   return response.json() as Promise<T>
+}
+
+function normalizeError(caught: unknown) {
+  return caught instanceof Error && caught.name !== 'AbortError' && caught.message ? caught.message : 'Housekeeping data se nepodařilo načíst.'
 }
 
 function enrichAssignment(assignment: HousekeepingAssignment, requiredPhotoTypeIds: string[], photoTypes: Array<{ id: string; name: string }>): HousekeepingAssignment {

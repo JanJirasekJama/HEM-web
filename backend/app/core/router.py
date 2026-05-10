@@ -22,6 +22,7 @@ from app.core.schemas import (
     LoginResponse,
     NotificationCreate,
     NotificationRead,
+    RoleRead,
     SettingsRead,
     SettingsUpdate,
     UserCreate,
@@ -78,9 +79,9 @@ def me(user: User = Depends(get_current_user)) -> User:
     return user
 
 
-@router.get("/roles")
-def list_roles(db: Session = Depends(get_db), _: User = Depends(require_admin)) -> list[dict[str, str]]:
-    return [{"id": role.id, "name": role.name} for role in db.scalars(select(Role).order_by(Role.name)).all()]
+@router.get("/roles", response_model=list[RoleRead])
+def list_roles(db: Session = Depends(get_db), _: User = Depends(require_admin)) -> list[Role]:
+    return list(db.scalars(select(Role).order_by(Role.name)).all())
 
 
 @router.get("/users", response_model=list[UserRead])

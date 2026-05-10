@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import type { BackupRecord, CatalogBootstrap, CatalogKind, CatalogRecord, JsonValue, RecoveryPoint, RestoreResult, SettingRead } from './types'
+import type {
+  BackupRecord,
+  CatalogBootstrap,
+  CatalogKind,
+  CatalogRecord,
+  JsonValue,
+  RecoveryPoint,
+  RestoreResult,
+  RoleRead,
+  SettingRead,
+  UserCreatePayload,
+  UserRead,
+} from './types'
 
 type ApiState<T> = {
   data: T | null
@@ -96,4 +108,20 @@ export function createRecoveryPoint(description: string) {
 
 export function restoreRecoveryPoint(id: string) {
   return apiRequest<RestoreResult>(`/api/backups/recovery-points/${id}/restore`, { method: 'POST' })
+}
+
+export function loadUsers(signal: AbortSignal) {
+  return apiRequest<UserRead[]>('/api/users', {}, signal)
+}
+
+export function loadRoles(signal: AbortSignal) {
+  return apiRequest<RoleRead[]>('/api/roles', {}, signal)
+}
+
+export function createUser(payload: UserCreatePayload) {
+  return apiRequest<UserRead>('/api/users', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function deleteUser(id: string) {
+  return apiRequest<{ ok: boolean }>(`/api/users/${id}`, { method: 'DELETE' })
 }

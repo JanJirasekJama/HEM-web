@@ -4,7 +4,7 @@ export type CurrentUser = {
   id: string
   username: string
   display_name?: string | null
-  role?: { name: string } | null
+  role?: { id: string; name: string; permissions: string[] } | null
 }
 
 export type DashboardResponse = {

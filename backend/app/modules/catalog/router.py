@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin, require_csrf
+from app.core.deps import get_current_user, has_permission, require_admin, require_any_permission, require_csrf
 from app.core.models import User
 from app.modules.catalog.models import (
     DueTerm,
@@ -164,6 +164,12 @@ class BootstrapRead(BaseModel):
     email_recipients: list[EmailRecipientRead]
 
 
+class HousekeepingCatalogRead(BaseModel):
+    hotel_rooms: list[HotelRoomRead]
+    housekeeping_minibar_items: list[CatalogRead]
+    photo_task_types: list[CatalogRead]
+
+
 def _list(db: Session, model: type[ModelT], active_only: bool) -> list[ModelT]:
     statement = select(model)
     if active_only:
@@ -213,21 +219,42 @@ def _ensure_category_exists(db: Session, category_id: str) -> None:
 
 
 @router.get("/bootstrap", response_model=BootstrapRead)
-def bootstrap_catalog(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> BootstrapRead:
+def bootstrap_catalog(active_only: bool = True, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> BootstrapRead:
+    can_finance = _can(user, "invoices:read", "reports:read")
+    can_inventory = _can(user, "inventory:read", "reports:read")
+    can_housekeeping = _can(user, "housekeeping:reception", "housekeeping:work")
+    can_email = _can(user, "messages:send")
     return BootstrapRead(
-        service_categories=_list(db, ServiceCategory, active_only),
-        services=_list(db, Service, active_only),
-        due_terms=_list(db, DueTerm, active_only),
-        inventory_items=_list(db, InventoryItem, active_only),
-        hotel_rooms=_list(db, HotelRoom, active_only),
-        housekeeping_minibar_items=_list(db, HousekeepingMinibarItem, active_only),
-        photo_task_types=_list(db, PhotoTaskType, active_only),
-        email_recipients=_list(db, EmailRecipient, active_only),
+        service_categories=_list(db, ServiceCategory, active_only) if can_finance else [],
+        services=_list(db, Service, active_only) if can_finance else [],
+        due_terms=_list(db, DueTerm, active_only) if can_finance else [],
+        inventory_items=_list(db, InventoryItem, active_only) if can_inventory else [],
+        hotel_rooms=_list(db, HotelRoom, active_only) if can_housekeeping else [],
+        housekeeping_minibar_items=_list(db, HousekeepingMinibarItem, active_only) if can_housekeeping else [],
+        photo_task_types=_list(db, PhotoTaskType, active_only) if can_housekeeping else [],
+        email_recipients=_list(db, EmailRecipient, active_only) if can_email else [],
     )
 
 
+@router.get("/housekeeping", response_model=HousekeepingCatalogRead)
+def housekeeping_catalog(
+    active_only: bool = True,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_any_permission("housekeeping:reception", "housekeeping:work")),
+) -> HousekeepingCatalogRead:
+    return HousekeepingCatalogRead(
+        hotel_rooms=_list(db, HotelRoom, active_only),
+        housekeeping_minibar_items=_list(db, HousekeepingMinibarItem, active_only),
+        photo_task_types=_list(db, PhotoTaskType, active_only),
+    )
+
+
+def _can(user: User, *permissions: str) -> bool:
+    return any(has_permission(user, permission) for permission in permissions)
+
+
 @router.get("/service-categories", response_model=list[ServiceCategoryRead])
-def list_service_categories(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> list[ServiceCategory]:
+def list_service_categories(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(require_any_permission("invoices:read", "reports:read"))) -> list[ServiceCategory]:
     return _list(db, ServiceCategory, active_only)
 
 
@@ -237,7 +264,7 @@ def create_service_category(payload: ServiceCategoryCreate, db: Session = Depend
 
 
 @router.get("/service-categories/{item_id}", response_model=ServiceCategoryRead)
-def read_service_category(item_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> ServiceCategory:
+def read_service_category(item_id: str, db: Session = Depends(get_db), _: User = Depends(require_any_permission("invoices:read", "reports:read"))) -> ServiceCategory:
     return _get_or_404(db, ServiceCategory, item_id, "Service category")
 
 
@@ -252,7 +279,7 @@ def delete_service_category(item_id: str, db: Session = Depends(get_db), _: User
 
 
 @router.get("/services", response_model=list[ServiceRead])
-def list_services(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> list[Service]:
+def list_services(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(require_any_permission("invoices:read", "reports:read"))) -> list[Service]:
     return _list(db, Service, active_only)
 
 
@@ -263,7 +290,7 @@ def create_service(payload: ServiceCreate, db: Session = Depends(get_db), _: Use
 
 
 @router.get("/services/{item_id}", response_model=ServiceRead)
-def read_service(item_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> Service:
+def read_service(item_id: str, db: Session = Depends(get_db), _: User = Depends(require_any_permission("invoices:read", "reports:read"))) -> Service:
     return _get_or_404(db, Service, item_id, "Service")
 
 
@@ -280,7 +307,7 @@ def delete_service(item_id: str, db: Session = Depends(get_db), _: User = Depend
 
 
 @router.get("/due-terms", response_model=list[DueTermRead])
-def list_due_terms(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> list[DueTerm]:
+def list_due_terms(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(require_any_permission("invoices:read", "reports:read"))) -> list[DueTerm]:
     return _list(db, DueTerm, active_only)
 
 
@@ -290,7 +317,7 @@ def create_due_term(payload: DueTermCreate, db: Session = Depends(get_db), _: Us
 
 
 @router.get("/due-terms/{item_id}", response_model=DueTermRead)
-def read_due_term(item_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> DueTerm:
+def read_due_term(item_id: str, db: Session = Depends(get_db), _: User = Depends(require_any_permission("invoices:read", "reports:read"))) -> DueTerm:
     return _get_or_404(db, DueTerm, item_id, "Due term")
 
 
@@ -305,7 +332,7 @@ def delete_due_term(item_id: str, db: Session = Depends(get_db), _: User = Depen
 
 
 @router.get("/inventory-items", response_model=list[InventoryItemRead])
-def list_inventory_items(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> list[InventoryItem]:
+def list_inventory_items(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(require_any_permission("inventory:read", "reports:read"))) -> list[InventoryItem]:
     return _list(db, InventoryItem, active_only)
 
 
@@ -315,7 +342,7 @@ def create_inventory_item(payload: InventoryItemCreate, db: Session = Depends(ge
 
 
 @router.get("/inventory-items/{item_id}", response_model=InventoryItemRead)
-def read_inventory_item(item_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> InventoryItem:
+def read_inventory_item(item_id: str, db: Session = Depends(get_db), _: User = Depends(require_any_permission("inventory:read", "reports:read"))) -> InventoryItem:
     return _get_or_404(db, InventoryItem, item_id, "Inventory item")
 
 
@@ -330,7 +357,7 @@ def delete_inventory_item(item_id: str, db: Session = Depends(get_db), _: User =
 
 
 @router.get("/hotel-rooms", response_model=list[HotelRoomRead])
-def list_hotel_rooms(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> list[HotelRoom]:
+def list_hotel_rooms(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(require_any_permission("housekeeping:reception", "housekeeping:work"))) -> list[HotelRoom]:
     return _list(db, HotelRoom, active_only)
 
 
@@ -340,7 +367,7 @@ def create_hotel_room(payload: HotelRoomCreate, db: Session = Depends(get_db), _
 
 
 @router.get("/hotel-rooms/{item_id}", response_model=HotelRoomRead)
-def read_hotel_room(item_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> HotelRoom:
+def read_hotel_room(item_id: str, db: Session = Depends(get_db), _: User = Depends(require_any_permission("housekeeping:reception", "housekeeping:work"))) -> HotelRoom:
     return _get_or_404(db, HotelRoom, item_id, "Hotel room")
 
 
@@ -355,7 +382,7 @@ def delete_hotel_room(item_id: str, db: Session = Depends(get_db), _: User = Dep
 
 
 @router.get("/housekeeping-minibar-items", response_model=list[CatalogRead])
-def list_housekeeping_minibar_items(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> list[HousekeepingMinibarItem]:
+def list_housekeeping_minibar_items(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(require_any_permission("housekeeping:reception", "housekeeping:work"))) -> list[HousekeepingMinibarItem]:
     return _list(db, HousekeepingMinibarItem, active_only)
 
 
@@ -365,7 +392,7 @@ def create_housekeeping_minibar_item(payload: NamedCatalogCreate, db: Session = 
 
 
 @router.get("/housekeeping-minibar-items/{item_id}", response_model=CatalogRead)
-def read_housekeeping_minibar_item(item_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> HousekeepingMinibarItem:
+def read_housekeeping_minibar_item(item_id: str, db: Session = Depends(get_db), _: User = Depends(require_any_permission("housekeeping:reception", "housekeeping:work"))) -> HousekeepingMinibarItem:
     return _get_or_404(db, HousekeepingMinibarItem, item_id, "Housekeeping minibar item")
 
 
@@ -380,7 +407,7 @@ def delete_housekeeping_minibar_item(item_id: str, db: Session = Depends(get_db)
 
 
 @router.get("/photo-task-types", response_model=list[CatalogRead])
-def list_photo_task_types(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> list[PhotoTaskType]:
+def list_photo_task_types(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(require_any_permission("housekeeping:reception", "housekeeping:work"))) -> list[PhotoTaskType]:
     return _list(db, PhotoTaskType, active_only)
 
 
@@ -390,7 +417,7 @@ def create_photo_task_type(payload: NamedCatalogCreate, db: Session = Depends(ge
 
 
 @router.get("/photo-task-types/{item_id}", response_model=CatalogRead)
-def read_photo_task_type(item_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> PhotoTaskType:
+def read_photo_task_type(item_id: str, db: Session = Depends(get_db), _: User = Depends(require_any_permission("housekeeping:reception", "housekeeping:work"))) -> PhotoTaskType:
     return _get_or_404(db, PhotoTaskType, item_id, "Photo task type")
 
 
@@ -405,7 +432,7 @@ def delete_photo_task_type(item_id: str, db: Session = Depends(get_db), _: User 
 
 
 @router.get("/email-recipients", response_model=list[EmailRecipientRead])
-def list_email_recipients(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> list[EmailRecipient]:
+def list_email_recipients(active_only: bool = True, db: Session = Depends(get_db), _: User = Depends(require_any_permission("messages:send"))) -> list[EmailRecipient]:
     return _list(db, EmailRecipient, active_only)
 
 
@@ -415,7 +442,7 @@ def create_email_recipient(payload: EmailRecipientCreate, db: Session = Depends(
 
 
 @router.get("/email-recipients/{item_id}", response_model=EmailRecipientRead)
-def read_email_recipient(item_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> EmailRecipient:
+def read_email_recipient(item_id: str, db: Session = Depends(get_db), _: User = Depends(require_any_permission("messages:send"))) -> EmailRecipient:
     return _get_or_404(db, EmailRecipient, item_id, "Email recipient")
 
 

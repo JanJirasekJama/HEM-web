@@ -96,3 +96,30 @@ export type RestoreResult = {
   restored_at: string
   metadata: Record<string, JsonValue>
 }
+
+export type RoleRead = {
+  id: string
+  name: string
+  permissions: string[]
+}
+
+export type UserRead = {
+  id: string
+  username: string
+  display_name?: string | null
+  role_id: string
+  role?: RoleRead | null
+  comment_color?: string | null
+  cannot_delete: boolean
+  created_at: string
+  last_login_at?: string | null
+  active: boolean
+}
+
+export type UserCreatePayload = {
+  username: string
+  password: string
+  role_name: string
+  display_name?: string | null
+  comment_color?: string | null
+}

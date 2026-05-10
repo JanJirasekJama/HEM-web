@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { DatabaseBackup, Plus, RefreshCw, RotateCcw, Save, Settings, Trash2 } from 'lucide-react'
+import { DatabaseBackup, Plus, RefreshCw, RotateCcw, Save, Settings, Trash2, Users } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,7 @@ import {
   useAdminResource,
 } from './api'
 import type { BackupRecord, CatalogBootstrap, CatalogKind, CatalogRecord, JsonValue, RecoveryPoint } from './types'
+import { UserRolesPanel } from './UserRolesPanel'
 
 const settingKeys = [
   { key: 'company', label: 'Firma' },
@@ -59,10 +60,12 @@ export function AdminWorkspace() {
       <Tabs defaultValue="settings" className="gap-4">
         <TabsList className="w-full justify-start overflow-x-auto rounded-md">
           <TabsTrigger value="settings"><Settings className="size-4" /> Nastavení</TabsTrigger>
+          <TabsTrigger value="users"><Users className="size-4" /> Uživatelé a role</TabsTrigger>
           <TabsTrigger value="catalog"><Plus className="size-4" /> Katalog</TabsTrigger>
           <TabsTrigger value="backups"><DatabaseBackup className="size-4" /> Zálohy</TabsTrigger>
         </TabsList>
         <TabsContent value="settings"><SettingsPanel onMessage={setMessage} /></TabsContent>
+        <TabsContent value="users"><UserRolesPanel onMessage={setMessage} /></TabsContent>
         <TabsContent value="catalog"><CatalogPanel catalog={catalog.data} loading={catalog.loading} error={catalog.error} onReload={catalog.reload} onMessage={setMessage} /></TabsContent>
         <TabsContent value="backups"><BackupPanel backups={backups.data ?? []} loading={backups.loading} error={backups.error} onReload={backups.reload} onMessage={setMessage} /></TabsContent>
       </Tabs>

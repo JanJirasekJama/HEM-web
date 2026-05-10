@@ -2,10 +2,14 @@
   "name": "HEM",
   "short_name": "HEM",
   "description": "Konsolidovaná provozní aplikace HEM",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
+  "lang": "cs",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#111827",
+  "categories": ["business", "productivity"],
   "icons": [
     {
       "src": "/pwa-icon.svg",

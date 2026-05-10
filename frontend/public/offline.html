@@ -18,12 +18,30 @@
         max-width: 32rem;
         padding: 2rem;
       }
+      h1 {
+        margin: 0 0 0.75rem;
+        font-size: clamp(2rem, 6vw, 3rem);
+        line-height: 1;
+      }
+      p {
+        margin: 0;
+        color: #4b5563;
+        font-size: 1rem;
+        line-height: 1.6;
+      }
+      a {
+        display: inline-block;
+        margin-top: 1.5rem;
+        color: #0f766e;
+        font-weight: 700;
+      }
     </style>
   </head>
   <body>
     <main>
       <h1>HEM je offline</h1>
-      <p>Aplikace se spustila z cache. Zápisy budou dostupné po obnovení spojení s backendem.</p>
+      <p>Aplikace se spustila z cache. Jakmile se spojení obnoví, znovu načte aktuální provozní data z backendu.</p>
+      <a href="/">Zkusit načíst znovu</a>
     </main>
   </body>
 </html>

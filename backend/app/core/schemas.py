@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class RoleRead(BaseModel):
@@ -9,6 +9,14 @@ class RoleRead(BaseModel):
 
     id: str
     name: str
+    permissions: list[str] = Field(default_factory=list)
+
+    @field_validator("permissions", mode="before")
+    @classmethod
+    def permissions_to_codes(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        return sorted(permission if isinstance(permission, str) else permission.code for permission in value)
 
 
 class UserRead(BaseModel):
@@ -78,4 +86,3 @@ class EmailRecipientCreate(BaseModel):
     name: str
     email: EmailStr
     active: bool = True
-

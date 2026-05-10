@@ -48,7 +48,7 @@ export function AppLayout(state: AppState) {
                 <NotificationsPanel notifications={state.notifications} />
               </>
             ) : activeModule ? (
-              <ModuleOutlet module={activeModule} />
+              <ModuleOutlet module={activeModule} currentUser={state.user} permissions={state.permissions} />
             ) : null}
           </div>
         </div>

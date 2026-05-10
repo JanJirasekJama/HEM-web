@@ -4,7 +4,7 @@ import { modules } from '@/features/modules'
 import { apiGet, login, logout, type ApiStatus, type CurrentUser, type DashboardResponse, type NotificationItem } from '@/shared/api'
 import { AppStateContext } from '@/shared/auth/AppStateContext'
 import type { AppState, LoginFormState } from '@/shared/auth/appStateTypes'
-import { canAccessPermission, getPermissionsForRole, getRoleName, type ModuleCode, type PermissionState } from '@/shared/auth/permissions'
+import { canAccessModule, canAccessPermission, getPermissionsForRole, getRoleName, type ModuleCode, type PermissionState } from '@/shared/auth/permissions'
 
 const CSRF_STORAGE_KEY = 'hem-csrf'
 
@@ -28,7 +28,7 @@ function useAppStateController(): AppState {
   const logoutControllerRef = useRef<AbortController | null>(null)
 
   const roleName = getRoleName(user?.role?.name ?? dashboard?.current_user.role)
-  const rolePermissions = useMemo(() => getPermissionsForRole(roleName), [roleName])
+  const rolePermissions = useMemo(() => getPermissionsForRole(user?.role), [user?.role])
   const permissions = useMemo<PermissionState>(
     () => ({
       roleName,
@@ -38,7 +38,7 @@ function useAppStateController(): AppState {
     [roleName, rolePermissions],
   )
 
-  const availableModules = useMemo(() => modules.filter((module) => permissions.can(module.permission)), [permissions])
+  const availableModules = useMemo(() => modules.filter((module) => canAccessModule(rolePermissions, module.permission)), [rolePermissions])
   const effectiveActiveModule = useMemo(
     () => (availableModules.some((module) => module.code === activeModule) ? activeModule : availableModules[0]?.code ?? 'dashboard'),
     [activeModule, availableModules],

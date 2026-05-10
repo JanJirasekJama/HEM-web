@@ -31,7 +31,7 @@ import type { CatalogBootstrap, InventoryMonthlyReport, Invoice, InvoiceStatisti
 
 const money = new Intl.NumberFormat('cs-CZ', { style: 'currency', currency: 'CZK', maximumFractionDigits: 0 })
 
-export function FinanceWorkspace() {
+export function FinanceWorkspace({ defaultTab = 'invoices' }: { defaultTab?: 'invoices' | 'reports' }) {
   const catalog = useFinanceResource(loadFinanceBootstrap, [])
   const archive = useFinanceResource(loadInvoiceArchive, [])
   const [message, setMessage] = useState('')
@@ -51,7 +51,7 @@ export function FinanceWorkspace() {
     <section className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-4 sm:px-6 lg:px-8">
       <WorkspaceHeader title="Finance" detail="Fakturace, platby, PDF, e-mailová fronta a reporty" />
       {message && <StatusLine text={message} />}
-      <Tabs defaultValue="invoices" className="gap-4">
+      <Tabs defaultValue={defaultTab} className="gap-4">
         <TabsList className="w-full justify-start overflow-x-auto rounded-md">
           <TabsTrigger value="invoices"><FileText className="size-4" /> Fakturace</TabsTrigger>
           <TabsTrigger value="reports"><Archive className="size-4" /> Reporty</TabsTrigger>

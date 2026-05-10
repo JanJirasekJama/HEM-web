@@ -25,7 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 
 import { useHousekeepingWorkspace } from './hooks'
-import type { AssignmentCreateDraft, HousekeepingAssignment, HousekeepingRole, HousekeepingWorkspaceData, RevisionTask } from './types'
+import type { AssignmentCreateDraft, HousekeepingAssignment, HousekeepingCapabilities, HousekeepingRole, HousekeepingWorkspaceData, RevisionTask } from './types'
 
 type DialogState =
   | { type: 'assignment' }
@@ -35,9 +35,61 @@ type DialogState =
   | { type: 'laundry-photo'; laundryId: string }
   | null
 
-export function HousekeepingWorkspace({ initialData }: { initialData?: HousekeepingWorkspaceData }) {
-  const { data, loading, error, pending, actions } = useHousekeepingWorkspace(initialData)
-  const [role, setRole] = useState<HousekeepingRole>('reception')
+type HousekeepingWorkspaceProps = {
+  initialData?: HousekeepingWorkspaceData
+  allowedRoles?: HousekeepingRole[]
+  defaultRole?: HousekeepingRole
+  capabilities?: Partial<HousekeepingCapabilities>
+}
+
+const allRoles: HousekeepingRole[] = ['reception', 'housekeeper']
+
+const emptyCapabilities: HousekeepingCapabilities = {
+  viewHistory: false,
+  viewReport: false,
+  createAssignments: false,
+  workAssignments: false,
+  uploadAssignmentPhotos: false,
+  addMinibarEntries: false,
+  createRevisions: false,
+  completeRevisions: false,
+  createLaundry: false,
+  workLaundry: false,
+}
+
+const roleCapabilities: Record<HousekeepingRole, HousekeepingCapabilities> = {
+  reception: {
+    ...emptyCapabilities,
+    viewHistory: true,
+    createAssignments: true,
+    createRevisions: true,
+    createLaundry: true,
+  },
+  housekeeper: {
+    ...emptyCapabilities,
+    workAssignments: true,
+    uploadAssignmentPhotos: true,
+    addMinibarEntries: true,
+    completeRevisions: true,
+    workLaundry: true,
+  },
+}
+
+const roleLabels: Record<HousekeepingRole, string> = {
+  reception: 'Recepce',
+  housekeeper: 'Pokojská',
+}
+
+export function HousekeepingWorkspace({ initialData, allowedRoles, defaultRole = 'reception', capabilities }: HousekeepingWorkspaceProps) {
+  const allowedRoleList = useMemo(() => normalizeAllowedRoles(allowedRoles), [allowedRoles])
+  const firstAllowedRole = allowedRoleList.includes(defaultRole) ? defaultRole : allowedRoleList[0] ?? null
+  const [requestedRole, setRequestedRole] = useState<HousekeepingRole | null>(firstAllowedRole)
+  const role = requestedRole && allowedRoleList.includes(requestedRole) ? requestedRole : firstAllowedRole
+  const activeCapabilities = useMemo(() => ({ ...(role ? roleCapabilities[role] : emptyCapabilities), ...capabilities }), [capabilities, role])
+  const { data, loading, error, pending, actions } = useHousekeepingWorkspace(initialData, {
+    loadHistory: activeCapabilities.viewHistory,
+    loadReport: activeCapabilities.viewReport,
+  })
   const [tab, setTab] = useState('rooms')
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(data.assignments[0]?.id ?? null)
   const [dialog, setDialog] = useState<DialogState>(null)
@@ -45,6 +97,8 @@ export function HousekeepingWorkspace({ initialData }: { initialData?: Housekeep
   const openAssignments = data.assignments.filter((assignment) => assignment.status !== 'Hotovo')
   const doneAssignments = data.assignments.filter((assignment) => assignment.status === 'Hotovo')
   const openRevisions = data.revisions.filter((revision) => revision.status === 'open')
+  const canViewReports = activeCapabilities.viewHistory || activeCapabilities.viewReport
+  const activeTab = canViewReports || tab !== 'reports' ? tab : 'rooms'
 
   const stats = useMemo(
     () => [
@@ -66,19 +120,10 @@ export function HousekeepingWorkspace({ initialData }: { initialData?: Housekeep
             </div>
             <div>
               <h1 className="text-xl font-semibold tracking-normal sm:text-2xl">Housekeeping</h1>
-              <p className="text-sm text-muted-foreground">{loading ? 'Načítám provozní data' : error ? 'Lokální náhled, backend nedostupný' : 'Recepce a pokojské v jednom workflow'}</p>
+              <p className="text-sm text-muted-foreground">{loading ? 'Načítám provozní data' : error ? 'Backend nedostupný' : 'Recepce a pokojské v jednom workflow'}</p>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:flex">
-            <Button variant={role === 'reception' ? 'default' : 'outline'} onClick={() => setRole('reception')}>
-              <ClipboardCheck className="size-4" aria-hidden="true" />
-              Recepce
-            </Button>
-            <Button variant={role === 'housekeeper' ? 'default' : 'outline'} onClick={() => setRole('housekeeper')}>
-              <Shirt className="size-4" aria-hidden="true" />
-              Pokojská
-            </Button>
-          </div>
+          <RoleControls role={role} allowedRoles={allowedRoleList} onRoleChange={setRequestedRole} />
         </header>
 
         <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -90,18 +135,18 @@ export function HousekeepingWorkspace({ initialData }: { initialData?: Housekeep
           ))}
         </section>
 
-        <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="grid h-auto w-full grid-cols-3 sm:inline-flex sm:w-fit">
+        <Tabs value={activeTab} onValueChange={setTab}>
+          <TabsList className={canViewReports ? 'grid h-auto w-full grid-cols-3 sm:inline-flex sm:w-fit' : 'grid h-auto w-full grid-cols-2 sm:inline-flex sm:w-fit'}>
             <TabsTrigger value="rooms">Pokoje</TabsTrigger>
             <TabsTrigger value="revision">Revize</TabsTrigger>
-            <TabsTrigger value="reports">Reporty</TabsTrigger>
+            {canViewReports && <TabsTrigger value="reports">Reporty</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="rooms" className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
             <div className="flex flex-col gap-3">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-base font-semibold tracking-normal">Úklidy</h2>
-                {role === 'reception' && (
+                {activeCapabilities.createAssignments && (
                   <Button onClick={() => setDialog({ type: 'assignment' })}>
                     <Plus className="size-4" aria-hidden="true" />
                     Zadat
@@ -117,7 +162,7 @@ export function HousekeepingWorkspace({ initialData }: { initialData?: Housekeep
 
             <AssignmentDetail
               assignment={selectedAssignment}
-              role={role}
+              capabilities={activeCapabilities}
               minibarItems={data.minibarItems}
               pending={pending}
               onStart={actions.startAssignment}
@@ -135,7 +180,7 @@ export function HousekeepingWorkspace({ initialData }: { initialData?: Housekeep
             <section className="flex flex-col gap-3">
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-semibold tracking-normal">Revize</h2>
-                {role === 'reception' && (
+                {activeCapabilities.createRevisions && (
                   <Button onClick={() => setDialog({ type: 'revision-create' })}>
                     <SquarePen className="size-4" aria-hidden="true" />
                     Nová
@@ -144,17 +189,27 @@ export function HousekeepingWorkspace({ initialData }: { initialData?: Housekeep
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 {data.revisions.map((revision) => (
-                  <RevisionCard key={revision.id} revision={revision} role={role} onComplete={() => setDialog({ type: 'revision-complete', revisionId: revision.id })} />
+                  <RevisionCard key={revision.id} revision={revision} canComplete={activeCapabilities.completeRevisions} onComplete={() => setDialog({ type: 'revision-complete', revisionId: revision.id })} />
                 ))}
               </div>
             </section>
-            <LaundryPanel data={data} role={role} pending={pending} onCreate={actions.createLaundry} onAccept={actions.acceptLaundry} onPhoto={(laundryId) => setDialog({ type: 'laundry-photo', laundryId })} onDone={actions.finishLaundry} />
+            <LaundryPanel
+              data={data}
+              capabilities={activeCapabilities}
+              pending={pending}
+              onCreate={actions.createLaundry}
+              onAccept={actions.acceptLaundry}
+              onPhoto={(laundryId) => setDialog({ type: 'laundry-photo', laundryId })}
+              onDone={actions.finishLaundry}
+            />
           </TabsContent>
 
-          <TabsContent value="reports" className="grid gap-4 lg:grid-cols-2">
-            <HistoryPanel data={data} />
-            <MonthlyReport data={data} />
-          </TabsContent>
+          {canViewReports && (
+            <TabsContent value="reports" className="grid gap-4 lg:grid-cols-2">
+              {activeCapabilities.viewHistory && <HistoryPanel data={data} />}
+              {activeCapabilities.viewReport && <MonthlyReport data={data} />}
+            </TabsContent>
+          )}
         </Tabs>
       </div>
 
@@ -192,6 +247,33 @@ export function HousekeepingWorkspace({ initialData }: { initialData?: Housekeep
   )
 }
 
+function RoleControls(props: { role: HousekeepingRole | null; allowedRoles: HousekeepingRole[]; onRoleChange: (role: HousekeepingRole) => void }) {
+  if (props.allowedRoles.length === 0) return <Badge variant="destructive">Bez oprávnění</Badge>
+  if (props.allowedRoles.length === 1) return <Badge variant="secondary">{roleLabels[props.allowedRoles[0]]}</Badge>
+
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:flex">
+      {props.allowedRoles.includes('reception') && (
+        <Button variant={props.role === 'reception' ? 'default' : 'outline'} onClick={() => props.onRoleChange('reception')}>
+          <ClipboardCheck className="size-4" aria-hidden="true" />
+          Recepce
+        </Button>
+      )}
+      {props.allowedRoles.includes('housekeeper') && (
+        <Button variant={props.role === 'housekeeper' ? 'default' : 'outline'} onClick={() => props.onRoleChange('housekeeper')}>
+          <Shirt className="size-4" aria-hidden="true" />
+          Pokojská
+        </Button>
+      )}
+    </div>
+  )
+}
+
+function normalizeAllowedRoles(roles?: HousekeepingRole[]) {
+  if (!roles) return allRoles
+  return allRoles.filter((role) => roles.includes(role))
+}
+
 function AssignmentCard({ assignment, active, onSelect }: { assignment: HousekeepingAssignment; active: boolean; onSelect: () => void }) {
   return (
     <button type="button" onClick={onSelect} className={'rounded-md border bg-card p-3 text-left transition-colors hover:bg-muted/60 ' + (active ? 'border-primary ring-2 ring-primary/20' : '')}>
@@ -213,7 +295,7 @@ function AssignmentCard({ assignment, active, onSelect }: { assignment: Housekee
 
 function AssignmentDetail(props: {
   assignment?: HousekeepingAssignment
-  role: HousekeepingRole
+  capabilities: HousekeepingCapabilities
   minibarItems: Array<{ id: string; name: string }>
   pending: Partial<Record<string, boolean>>
   onStart: (id: string) => Promise<void>
@@ -238,7 +320,7 @@ function AssignmentDetail(props: {
         <CardAction><StatusBadge status={assignment.status} /></CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        {props.role === 'housekeeper' && (
+        {props.capabilities.workAssignments && (
           <div className="grid grid-cols-2 gap-2">
             {assignment.status === 'Prideleno' && <Button onClick={() => props.onStart(assignment.id)}><Play className="size-4" aria-hidden="true" />Start</Button>}
             {assignment.status === 'Uklizi se' && <Button variant="outline" onClick={() => props.onPause(assignment.id)}><Pause className="size-4" aria-hidden="true" />Pauza</Button>}
@@ -256,30 +338,36 @@ function AssignmentDetail(props: {
                   <div className="font-medium">{required.task_label_snapshot}</div>
                   <div className="text-xs text-muted-foreground">{required.uploaded ? 'Nahráno' : 'Vyžadováno před dokončením'}</div>
                 </div>
-                <Button size="icon" variant={required.uploaded ? 'outline' : 'default'} onClick={() => props.onUploadPhoto(assignment, required)} aria-label={'Nahrát fotku ' + required.task_label_snapshot}>
-                  <Upload className="size-4" aria-hidden="true" />
-                </Button>
+                {props.capabilities.uploadAssignmentPhotos && (
+                  <Button size="icon" variant={required.uploaded ? 'outline' : 'default'} onClick={() => props.onUploadPhoto(assignment, required)} aria-label={'Nahrát fotku ' + required.task_label_snapshot}>
+                    <Upload className="size-4" aria-hidden="true" />
+                  </Button>
+                )}
               </div>
             ))}
-            <Button variant="outline" onClick={() => props.onUploadPhoto(assignment)}>
-              <Camera className="size-4" aria-hidden="true" />
-              Dobrovolná fotka
-            </Button>
+            {props.capabilities.uploadAssignmentPhotos && (
+              <Button variant="outline" onClick={() => props.onUploadPhoto(assignment)}>
+                <Camera className="size-4" aria-hidden="true" />
+                Dobrovolná fotka
+              </Button>
+            )}
           </div>
         </section>
 
         <Separator />
         <section className="space-y-2">
           <div className="text-sm font-medium">Minibar checklist</div>
-          <div className="grid grid-cols-[1fr_80px_auto] gap-2">
-            <select className="h-8 rounded-lg border bg-background px-2 text-sm" value={minibarItemId} onChange={(event) => setMinibarItemId(event.target.value)} aria-label="Položka minibaru">
-              {props.minibarItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
-            <Input type="number" min={1} value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} aria-label="Počet" />
-            <Button size="icon" disabled={!minibarItemId || Boolean(props.pending.addMinibarEntry)} onClick={() => props.onAddMinibar(assignment.id, minibarItemId, quantity)} aria-label="Přidat minibar">
-              <Plus className="size-4" aria-hidden="true" />
-            </Button>
-          </div>
+          {props.capabilities.addMinibarEntries && (
+            <div className="grid grid-cols-[1fr_80px_auto] gap-2">
+              <select className="h-8 rounded-lg border bg-background px-2 text-sm" value={minibarItemId} onChange={(event) => setMinibarItemId(event.target.value)} aria-label="Položka minibaru">
+                {props.minibarItems.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+              <Input type="number" min={1} value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} aria-label="Počet" />
+              <Button size="icon" disabled={!minibarItemId || Boolean(props.pending.addMinibarEntry)} onClick={() => props.onAddMinibar(assignment.id, minibarItemId, quantity)} aria-label="Přidat minibar">
+                <Plus className="size-4" aria-hidden="true" />
+              </Button>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             {assignment.minibar_entries.map((entry) => <Badge key={entry.id} variant="secondary">{entry.item_name_snapshot} × {entry.quantity}</Badge>)}
             {!assignment.minibar_entries.length && <span className="text-sm text-muted-foreground">Zatím nic zapsáno</span>}
@@ -290,7 +378,7 @@ function AssignmentDetail(props: {
   )
 }
 
-function RevisionCard({ revision, role, onComplete }: { revision: RevisionTask; role: HousekeepingRole; onComplete: () => void }) {
+function RevisionCard({ revision, canComplete, onComplete }: { revision: RevisionTask; canComplete: boolean; onComplete: () => void }) {
   return (
     <Card className="rounded-md">
       <CardHeader>
@@ -298,7 +386,7 @@ function RevisionCard({ revision, role, onComplete }: { revision: RevisionTask; 
         <CardDescription>{revision.text}</CardDescription>
         <CardAction><Badge variant={revision.status === 'open' ? 'outline' : 'secondary'}>{revision.status === 'open' ? 'Ke splnění' : 'Hotovo'}</Badge></CardAction>
       </CardHeader>
-      {role === 'housekeeper' && revision.status === 'open' && (
+      {canComplete && revision.status === 'open' && (
         <CardContent>
           <Button className="w-full" onClick={onComplete}><Check className="size-4" aria-hidden="true" />Splnit revizi</Button>
         </CardContent>
@@ -309,7 +397,7 @@ function RevisionCard({ revision, role, onComplete }: { revision: RevisionTask; 
 
 function LaundryPanel(props: {
   data: HousekeepingWorkspaceData
-  role: HousekeepingRole
+  capabilities: HousekeepingCapabilities
   pending: Partial<Record<string, boolean>>
   onCreate: () => Promise<void>
   onAccept: (id: string) => Promise<void>
@@ -322,7 +410,7 @@ function LaundryPanel(props: {
       <CardHeader>
         <CardTitle>Prádelna</CardTitle>
         <CardDescription>Echo, převzetí, fotka skříně a dokončení</CardDescription>
-        {props.role === 'reception' && <CardAction><Button size="icon" onClick={props.onCreate} aria-label="Vyvolat prádelnu"><Plus className="size-4" aria-hidden="true" /></Button></CardAction>}
+        {props.capabilities.createLaundry && <CardAction><Button size="icon" onClick={props.onCreate} aria-label="Vyvolat prádelnu"><Plus className="size-4" aria-hidden="true" /></Button></CardAction>}
       </CardHeader>
       <CardContent className="grid gap-2">
         {active.map((task) => (
@@ -331,7 +419,7 @@ function LaundryPanel(props: {
               <span className="font-medium">{task.status === 'open' ? 'Dorazila prádelna' : 'Převzato'}</span>
               <Badge variant="outline">{task.photo_uploaded ? 'Fotka OK' : 'Chybí fotka'}</Badge>
             </div>
-            {props.role === 'housekeeper' && (
+            {props.capabilities.workLaundry && (
               <div className="mt-3 grid grid-cols-3 gap-2">
                 <Button variant="outline" disabled={task.status !== 'open'} onClick={() => props.onAccept(task.id)}>Převzít</Button>
                 <Button variant="outline" onClick={() => props.onPhoto(task.id)}><Camera className="size-4" aria-hidden="true" />Foto</Button>
@@ -448,18 +536,25 @@ function RevisionDialog(props: { open: boolean; onOpenChange: (open: boolean) =>
 function RevisionCompleteDialog(props: { open: boolean; onOpenChange: (open: boolean) => void; onSubmit: (note: string, files: File[]) => Promise<void> }) {
   const [note, setNote] = useState('')
   const [files, setFiles] = useState<File[]>([])
+  const close = (open: boolean) => {
+    if (!open) {
+      setNote('')
+      setFiles([])
+    }
+    props.onOpenChange(open)
+  }
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     await props.onSubmit(note, files)
-    props.onOpenChange(false)
+    close(false)
   }
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog open={props.open} onOpenChange={close}>
       <DialogContent>
         <DialogHeader><DialogTitle>Splnit revizi</DialogTitle></DialogHeader>
         <form className="grid gap-3" onSubmit={submit}>
           <Textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Poznámka" />
-          <Input type="file" accept="image/*" capture="environment" multiple onChange={(event) => setFiles(Array.from(event.target.files || []))} />
+          <Input key={props.open ? 'revision-files-open' : 'revision-files-closed'} type="file" accept="image/*" capture="environment" multiple onChange={(event) => setFiles(Array.from(event.target.files || []))} />
           <DialogFooter><Button type="submit">Dokončit</Button></DialogFooter>
         </form>
       </DialogContent>
@@ -469,19 +564,23 @@ function RevisionCompleteDialog(props: { open: boolean; onOpenChange: (open: boo
 
 function PhotoDialog(props: { open: boolean; title: string; capture?: boolean; onOpenChange: (open: boolean) => void; onSubmit: (file: File) => Promise<void> }) {
   const [file, setFile] = useState<File | null>(null)
+  const close = (open: boolean) => {
+    if (!open) setFile(null)
+    props.onOpenChange(open)
+  }
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!file) return
     await props.onSubmit(file)
-    props.onOpenChange(false)
+    close(false)
   }
   const changeFile = (event: ChangeEvent<HTMLInputElement>) => setFile(event.target.files?.[0] ?? null)
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog open={props.open} onOpenChange={close}>
       <DialogContent>
         <DialogHeader><DialogTitle>{props.title}</DialogTitle></DialogHeader>
         <form className="grid gap-3" onSubmit={submit}>
-          <Input type="file" accept="image/*" capture={props.capture ? 'environment' : undefined} onChange={changeFile} required />
+          <Input key={props.open ? 'photo-open' : 'photo-closed'} type="file" accept="image/*" capture={props.capture ? 'environment' : undefined} onChange={changeFile} required />
           <DialogFooter><Button type="submit" disabled={!file}><Upload className="size-4" aria-hidden="true" />Nahrát</Button></DialogFooter>
         </form>
       </DialogContent>

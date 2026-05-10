@@ -15,11 +15,14 @@ def test_login_uses_cookie_session_and_returns_current_user(client: TestClient) 
     body = login.json()
     assert body["ok"] is True
     assert body["user"]["username"] == "admin"
+    assert body["user"]["role"]["name"] == "admin"
+    assert body["user"]["role"]["permissions"] == ["*"]
     assert body["csrf_token"]
 
     me = client.get("/api/auth/me")
     assert me.status_code == 200
     assert me.json()["username"] == "admin"
+    assert me.json()["role"]["permissions"] == ["*"]
 
 
 def test_mutations_require_csrf(client: TestClient) -> None:
@@ -41,11 +44,16 @@ def test_admin_can_manage_users_but_protected_admin_and_self_delete_are_blocked(
         json={"username": "recepce", "password": "recepce1", "role_name": "recepcni", "display_name": "Recepce"},
     )
     assert created.status_code == 200
-    user_id = created.json()["id"]
+    created_body = created.json()
+    user_id = created_body["id"]
+    assert created_body["role"]["name"] == "recepcni"
+    assert "messages:*" in created_body["role"]["permissions"]
 
     listed = client.get("/api/users")
     assert listed.status_code == 200
     assert {user["username"] for user in listed.json()} >= {"admin", "recepce"}
+    recepce = next(user for user in listed.json() if user["username"] == "recepce")
+    assert "housekeeping:reception" in recepce["role"]["permissions"]
 
     protected_admin_id = next(user["id"] for user in listed.json() if user["username"] == "admin")
     protected_delete = client.delete(f"/api/users/{protected_admin_id}", headers=admin_auth)
@@ -64,6 +72,16 @@ def test_admin_can_manage_users_but_protected_admin_and_self_delete_are_blocked(
     self_delete_headers = {"X-CSRF-Token": login.json()["csrf_token"]}
     self_delete = client.delete(f"/api/users/{second_admin.json()['id']}", headers=self_delete_headers)
     assert self_delete.status_code == 400
+
+
+def test_roles_include_server_issued_permission_codes(client: TestClient, admin_auth: dict[str, str]) -> None:
+    roles = client.get("/api/roles")
+
+    assert roles.status_code == 200
+    role_permissions = {role["name"]: role["permissions"] for role in roles.json()}
+    assert role_permissions["admin"] == ["*"]
+    assert "invoices:*" in role_permissions["recepcni"]
+    assert role_permissions["pokojska"] == ["housekeeping:work", "notifications:read"]
 
 
 def test_passwords_are_argon2_and_last_login_is_recorded(client: TestClient, admin_auth: dict[str, str]) -> None:

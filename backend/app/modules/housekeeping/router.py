@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.database import get_db
-from app.core.deps import get_app_settings, get_current_user, has_permission, require_csrf, require_permission
+from app.core.deps import get_app_settings, get_current_user, has_permission, require_any_permission, require_csrf, require_permission
 from app.core.models import User
 from app.core.router import get_notification_queue
 from app.core.schemas import NotificationCreate
@@ -95,14 +95,26 @@ def create_assignments(
     db.commit()
     for assignment in assignments:
         db.refresh(assignment)
-    return [_assignment_dict(assignment) for assignment in assignments]
+    return [_assignment_dict(db, assignment) for assignment in assignments]
+
+
+@router.get("/state")
+def read_housekeeping_state(db: Session = Depends(get_db), _: User = Depends(require_any_permission("housekeeping:reception", "housekeeping:work"))) -> dict:
+    assignments = db.scalars(select(HousekeepingAssignment).where(HousekeepingAssignment.status != "Hotovo").order_by(HousekeepingAssignment.created_at.desc())).all()
+    revisions = db.scalars(select(RevisionTask).where(RevisionTask.status == "open").order_by(RevisionTask.created_at.desc())).all()
+    laundry = db.scalars(select(LaundryTask).where(LaundryTask.status != "done").order_by(LaundryTask.created_at.desc())).all()
+    return {
+        "assignments": [_assignment_dict(db, assignment) for assignment in assignments],
+        "revisions": [_revision_dict(revision) for revision in revisions],
+        "laundry": [_laundry_dict(db, task) for task in laundry],
+    }
 
 
 @router.patch("/assignments/{assignment_id}/start", dependencies=[Depends(require_csrf)])
 def start_assignment(assignment_id: str, db: Session = Depends(get_db), user: User = Depends(_require_housekeeping_work)) -> dict:
     assignment = _assignment(db, assignment_id)
     if assignment.status not in {"Prideleno", "Pozastaveno"}:
-        return _assignment_dict(assignment)
+        return _assignment_dict(db, assignment)
     now = utc_now()
     assignment.status = "Uklizi se"
     assignment.started_at = assignment.started_at or now
@@ -110,7 +122,7 @@ def start_assignment(assignment_id: str, db: Session = Depends(get_db), user: Us
     assignment.pause_started_at = None
     db.commit()
     db.refresh(assignment)
-    return _assignment_dict(assignment)
+    return _assignment_dict(db, assignment)
 
 
 @router.patch("/assignments/{assignment_id}/pause", dependencies=[Depends(require_csrf)])
@@ -122,7 +134,7 @@ def pause_assignment(assignment_id: str, db: Session = Depends(get_db), _: User 
     assignment.pause_started_at = utc_now()
     db.commit()
     db.refresh(assignment)
-    return _assignment_dict(assignment)
+    return _assignment_dict(db, assignment)
 
 
 @router.patch("/assignments/{assignment_id}/resume", dependencies=[Depends(require_csrf)])
@@ -136,7 +148,7 @@ def resume_assignment(assignment_id: str, db: Session = Depends(get_db), _: User
     assignment.pause_started_at = None
     db.commit()
     db.refresh(assignment)
-    return _assignment_dict(assignment)
+    return _assignment_dict(db, assignment)
 
 
 @router.patch("/assignments/{assignment_id}/finish", dependencies=[Depends(require_csrf)])
@@ -177,7 +189,7 @@ def finish_assignment(
     db.commit()
     db.refresh(assignment)
     _notify(db, queue, user, "housekeeping.assignment.finished", "Pokoj dokončen", assignment.room_label_snapshot, "housekeeping_assignment", assignment.id)
-    return _assignment_dict(assignment)
+    return _assignment_dict(db, assignment)
 
 
 @router.post("/assignments/{assignment_id}/photos", dependencies=[Depends(require_csrf)])
@@ -292,7 +304,7 @@ def create_laundry(db: Session = Depends(get_db), user: User = Depends(_require_
     db.add(laundry)
     db.commit()
     db.refresh(laundry)
-    return _laundry_dict(laundry)
+    return _laundry_dict(db, laundry)
 
 
 @router.patch("/laundry/{laundry_id}/accept", dependencies=[Depends(require_csrf)])
@@ -303,7 +315,7 @@ def accept_laundry(laundry_id: str, db: Session = Depends(get_db), user: User = 
     laundry.accepted_at = utc_now()
     db.commit()
     db.refresh(laundry)
-    return _laundry_dict(laundry)
+    return _laundry_dict(db, laundry)
 
 
 @router.post("/laundry/{laundry_id}/photos", dependencies=[Depends(require_csrf)])
@@ -340,7 +352,7 @@ def finish_laundry(
     db.commit()
     db.refresh(laundry)
     _notify(db, queue, user, "housekeeping.laundry.done", "Prádlo dokončeno", None, "housekeeping_laundry", laundry.id)
-    return _laundry_dict(laundry)
+    return _laundry_dict(db, laundry)
 
 
 @router.get("/reports/monthly-work")
@@ -426,7 +438,19 @@ def _missing_required_photo_labels(db: Session, assignment_id: str) -> list[str]
     return missing
 
 
-def _assignment_dict(assignment: HousekeepingAssignment) -> dict:
+def _assignment_dict(db: Session, assignment: HousekeepingAssignment) -> dict:
+    uploaded_required_photo_type_ids = {
+        photo_type_id
+        for photo_type_id in db.scalars(
+            select(AssignmentPhoto.photo_task_type_id).where(
+                AssignmentPhoto.assignment_id == assignment.id,
+                AssignmentPhoto.photo_task_type_id.is_not(None),
+            )
+        ).all()
+    }
+    required_photos = db.scalars(select(AssignmentRequiredPhoto).where(AssignmentRequiredPhoto.assignment_id == assignment.id).order_by(AssignmentRequiredPhoto.task_label_snapshot)).all()
+    photos = db.scalars(select(AssignmentPhoto).where(AssignmentPhoto.assignment_id == assignment.id).order_by(AssignmentPhoto.created_at.desc())).all()
+    minibar_entries = db.scalars(select(AssignmentMinibarEntry).where(AssignmentMinibarEntry.assignment_id == assignment.id).order_by(AssignmentMinibarEntry.created_at.desc())).all()
     return {
         "id": assignment.id,
         "room_id": assignment.room_id,
@@ -439,6 +463,33 @@ def _assignment_dict(assignment: HousekeepingAssignment) -> dict:
         "created_at": assignment.created_at,
         "started_at": assignment.started_at,
         "finished_at": assignment.finished_at,
+        "required_photos": [
+            {
+                "id": required.id,
+                "photo_task_type_id": required.photo_task_type_id,
+                "task_label_snapshot": required.task_label_snapshot,
+                "uploaded": required.photo_task_type_id in uploaded_required_photo_type_ids,
+            }
+            for required in required_photos
+        ],
+        "photos": [
+            {
+                "id": photo.id,
+                "task_label": photo.task_label,
+                "photo_task_type_id": photo.photo_task_type_id,
+                "public_url": None,
+            }
+            for photo in photos
+        ],
+        "minibar_entries": [
+            {
+                "id": entry.id,
+                "item_id": entry.item_id,
+                "item_name_snapshot": entry.item_name_snapshot,
+                "quantity": entry.quantity,
+            }
+            for entry in minibar_entries
+        ],
     }
 
 
@@ -454,13 +505,14 @@ def _revision_dict(revision: RevisionTask) -> dict:
     }
 
 
-def _laundry_dict(laundry: LaundryTask) -> dict:
+def _laundry_dict(db: Session, laundry: LaundryTask) -> dict:
     return {
         "id": laundry.id,
         "status": laundry.status,
         "created_at": laundry.created_at,
         "accepted_at": laundry.accepted_at,
         "done_at": laundry.done_at,
+        "photo_uploaded": db.scalar(select(LaundryPhoto.id).where(LaundryPhoto.laundry_id == laundry.id).limit(1)) is not None,
     }
 
 

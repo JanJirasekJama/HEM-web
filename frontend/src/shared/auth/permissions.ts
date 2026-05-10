@@ -1,14 +1,7 @@
 import type { ComponentType } from 'react'
+import type { CurrentUser } from '@/shared/api'
 
-export const DEFAULT_ROLE_PERMISSIONS = {
-  admin: ['*'],
-  recepcni: ['messages:*', 'tasks:*', 'cash:*', 'inventory:*', 'invoices:*', 'housekeeping:reception'],
-  ucetni: ['invoices:*', 'reports:*', 'exports:*'],
-  pokojska: ['housekeeping:work', 'notifications:read'],
-} as const
-
-export type RoleName = keyof typeof DEFAULT_ROLE_PERMISSIONS
-export type PermissionCode = (typeof DEFAULT_ROLE_PERMISSIONS)[RoleName][number] | string
+export type PermissionCode = string
 
 export type ModuleCode =
   | 'dashboard'
@@ -25,9 +18,14 @@ export type ModuleDefinition = {
   code: ModuleCode
   name: string
   metric: string
-  permission: PermissionCode
+  permission: PermissionCode | PermissionCode[]
   icon: ComponentType<{ className?: string }>
-  component?: ComponentType
+  component?: ComponentType<ModuleComponentProps>
+}
+
+export type ModuleComponentProps = {
+  currentUser: CurrentUser | null
+  permissions: PermissionState
 }
 
 export type PermissionState = {
@@ -36,18 +34,12 @@ export type PermissionState = {
   can: (permission: string) => boolean
 }
 
-const DEFAULT_ROLE_NAMES = Object.keys(DEFAULT_ROLE_PERMISSIONS)
-
 export function getRoleName(roleName?: string | null) {
   return roleName || 'unknown'
 }
 
-export function getPermissionsForRole(roleName?: string | null) {
-  if (roleName && DEFAULT_ROLE_NAMES.includes(roleName)) {
-    return [...DEFAULT_ROLE_PERMISSIONS[roleName as RoleName]]
-  }
-
-  return []
+export function getPermissionsForRole(role?: CurrentUser['role']) {
+  return role?.permissions ? [...role.permissions] : []
 }
 
 export function canAccessPermission(permissions: string[], permission: string) {
@@ -55,6 +47,11 @@ export function canAccessPermission(permissions: string[], permission: string) {
   if (permissions.includes('*')) return true
 
   return permissions.some((granted) => permissionMatches(granted, permission))
+}
+
+export function canAccessModule(permissions: string[], permission: ModuleDefinition['permission']) {
+  const requiredPermissions = Array.isArray(permission) ? permission : [permission]
+  return requiredPermissions.some((item) => canAccessPermission(permissions, item))
 }
 
 export function permissionMatches(granted: string, requested: string) {

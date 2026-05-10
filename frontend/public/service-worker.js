@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hem-shell-v1'
+const CACHE_NAME = 'hem-shell-v2'
 const OFFLINE_URL = '/offline.html'
 const ASSETS = ['/', OFFLINE_URL, '/manifest.webmanifest', '/pwa-icon.svg']
 
@@ -16,12 +16,36 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const request = event.request
-  if (request.method !== 'GET') return
+  if (request.method !== 'GET' || !request.url.startsWith('http')) return
 
   if (request.mode === 'navigate') {
-    event.respondWith(fetch(request).catch(() => caches.match(OFFLINE_URL)))
+    event.respondWith(networkFirstNavigation(request))
     return
   }
 
-  event.respondWith(caches.match(request).then((cached) => cached || fetch(request)))
+  if (new URL(request.url).origin !== self.location.origin) return
+
+  event.respondWith(cacheFirstStaticAsset(request))
 })
+
+async function networkFirstNavigation(request) {
+  try {
+    const response = await fetch(request)
+    return response
+  } catch {
+    return (await caches.match(OFFLINE_URL)) || Response.error()
+  }
+}
+
+async function cacheFirstStaticAsset(request) {
+  const cached = await caches.match(request)
+  if (cached) return cached
+
+  const response = await fetch(request)
+  if (response.ok && response.type === 'basic') {
+    const cache = await caches.open(CACHE_NAME)
+    cache.put(request, response.clone())
+  }
+
+  return response
+}

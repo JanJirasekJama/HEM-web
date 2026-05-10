@@ -1,5 +1,18 @@
 export type HousekeepingRole = 'reception' | 'housekeeper'
 
+export type HousekeepingCapabilities = {
+  viewHistory: boolean
+  viewReport: boolean
+  createAssignments: boolean
+  workAssignments: boolean
+  uploadAssignmentPhotos: boolean
+  addMinibarEntries: boolean
+  createRevisions: boolean
+  completeRevisions: boolean
+  createLaundry: boolean
+  workLaundry: boolean
+}
+
 export type AssignmentStatus = 'Prideleno' | 'Uklizi se' | 'Pozastaveno' | 'Hotovo'
 
 export type CatalogItem = {
