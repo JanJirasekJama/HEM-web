@@ -1,4 +1,8 @@
+import asyncio
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -168,3 +172,18 @@ def mark_notification_read(notification_id: str, db: Session = Depends(get_db), 
 @router.get("/notifications/queue/drain")
 def drain_notification_queue(queue: NotificationQueue = Depends(get_notification_queue), _: User = Depends(require_admin)) -> list[dict]:
     return queue.drain()
+
+
+@router.get("/events")
+def event_stream(user: User = Depends(get_current_user)) -> StreamingResponse:
+    async def stream():
+        yield _sse("ready", {"ok": True, "user_id": user.id})
+        while True:
+            await asyncio.sleep(15)
+            yield _sse("ping", {"ok": True})
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-store"})
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
