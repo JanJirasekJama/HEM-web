@@ -19,5 +19,9 @@ export default defineConfig({
       '/api': process.env.VITE_BACKEND_TARGET ?? 'http://127.0.0.1:8000',
     },
   },
+  build: {
+    cssMinify: 'esbuild',
+    chunkSizeWarningLimit: 700,
+  },
   plugins: [react()],
 })
