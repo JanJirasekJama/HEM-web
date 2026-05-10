@@ -47,6 +47,12 @@ def test_message_comments_export_copy_and_email_queue(client: TestClient, admin_
     assert "Wellness večer" in exported.text
 
     client.post("/api/catalog/email-recipients", headers=admin_auth, json={"name": "Recepce", "email": "recepce@example.test", "active": True})
+    app_settings = client.get("/api/settings/app").json()["value"]
+    app_settings["email"]["username"] = "smtp-user"
+    app_settings["email"]["password_secret_ref"] = "secret/message-smtp"
+    updated_settings = client.put("/api/settings/app", headers=admin_auth, json={"value": app_settings})
+    assert updated_settings.status_code == 200
+
     sent = client.post(
         "/api/messages/send-email",
         headers=admin_auth,
@@ -55,3 +61,49 @@ def test_message_comments_export_copy_and_email_queue(client: TestClient, admin_
     assert sent.status_code == 200
     assert sent.json()["queued_recipients"] == ["recepce@example.test"]
 
+
+def test_message_email_requires_smtp_config_and_active_recipients(client: TestClient, admin_auth: dict[str, str]) -> None:
+    missing_config = client.post(
+        "/api/messages/send-email",
+        headers=admin_auth,
+        json={"message_date": "2026-05-09"},
+    )
+    assert missing_config.status_code == 400
+    assert "username" in missing_config.json()["detail"]
+    assert "active_recipients" in missing_config.json()["detail"]
+
+    inactive = client.post(
+        "/api/catalog/email-recipients",
+        headers=admin_auth,
+        json={"name": "Neaktivni", "email": "neaktivni@example.test", "active": False},
+    )
+    assert inactive.status_code == 200
+
+    app_settings = client.get("/api/settings/app").json()["value"]
+    app_settings["email"]["username"] = "smtp-user"
+    app_settings["email"]["password"] = "smtp-password"
+    updated_settings = client.put("/api/settings/app", headers=admin_auth, json={"value": app_settings})
+    assert updated_settings.status_code == 200
+
+    no_active_recipients = client.post(
+        "/api/messages/send-email",
+        headers=admin_auth,
+        json={"message_date": "2026-05-09"},
+    )
+    assert no_active_recipients.status_code == 400
+    assert "active_recipients" in no_active_recipients.json()["detail"]
+
+    active = client.post(
+        "/api/catalog/email-recipients",
+        headers=admin_auth,
+        json={"name": "Recepce", "email": "recepce@example.test", "active": True},
+    )
+    assert active.status_code == 200
+
+    queued = client.post(
+        "/api/messages/send-email",
+        headers=admin_auth,
+        json={"message_date": "2026-05-09"},
+    )
+    assert queued.status_code == 200
+    assert queued.json()["queued_recipients"] == ["recepce@example.test"]

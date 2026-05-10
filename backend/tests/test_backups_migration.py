@@ -10,6 +10,10 @@ def test_manual_backup_recovery_point_and_restore_metadata(
     admin_auth: dict[str, str],
     tmp_path: Path,
 ) -> None:
+    storage_root = tmp_path / "files"
+    (storage_root / "media").mkdir(parents=True)
+    (storage_root / "media" / "photo.jpg").write_bytes(b"photo-bytes")
+
     backup = client.post("/api/backups/manual", headers=admin_auth, json={"note": "Před migrací"})
     assert backup.status_code == 200
     backup_data = backup.json()
@@ -17,8 +21,12 @@ def test_manual_backup_recovery_point_and_restore_metadata(
     assert backup_data["backup_type"] == "manual"
 
     with zipfile.ZipFile(tmp_path / "files" / backup_data["file_path"]) as archive:
-        assert set(archive.namelist()) == {"manifest.json", "database.json"}
+        names = set(archive.namelist())
+        assert {"manifest.json", "database.json", "files/media/photo.jpg"} <= names
+        assert f"files/{backup_data['file_path']}" not in names
+        manifest = json.loads(archive.read("manifest.json"))
         database = json.loads(archive.read("database.json"))
+    assert manifest["files"] == {"count": 1, "bytes": len(b"photo-bytes")}
     assert database["format"] == "hem-db-snapshot-v1"
     assert "users" in database["tables"]
     assert "sessions" not in database["tables"]

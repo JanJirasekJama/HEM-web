@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.database import get_db
-from app.core.deps import get_app_settings, get_current_user, has_permission, require_csrf
+from app.core.deps import get_app_settings, get_current_user, has_permission, require_csrf, require_permission
 from app.core.models import User
 from app.core.router import get_notification_queue
 from app.core.schemas import NotificationCreate
@@ -235,7 +235,7 @@ def add_minibar_entry(assignment_id: str, payload: MinibarCreate, db: Session = 
 
 
 @router.get("/history")
-def list_history(month: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> list[dict]:
+def list_history(month: str, db: Session = Depends(get_db), _: User = Depends(_require_housekeeping_reception)) -> list[dict]:
     start, end = _month_window(month)
     rows = db.scalars(select(AssignmentHistory).where(AssignmentHistory.finished_at >= start, AssignmentHistory.finished_at < end).order_by(AssignmentHistory.finished_at.desc())).all()
     return [
@@ -344,7 +344,7 @@ def finish_laundry(
 
 
 @router.get("/reports/monthly-work")
-def monthly_work_report(month: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> dict:
+def monthly_work_report(month: str, db: Session = Depends(get_db), _: User = Depends(require_permission("reports:read"))) -> dict:
     start, end = _month_window(month)
     housekeepers: dict[str, dict[str, int]] = {}
 

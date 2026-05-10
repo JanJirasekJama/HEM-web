@@ -21,6 +21,8 @@ router = APIRouter(prefix="/api/backups", tags=["backups"])
 SNAPSHOT_FORMAT = "hem-db-snapshot-v1"
 VOLATILE_TABLES = {"sessions"}
 RESTORE_METADATA_TABLES = {"backup_records", "recovery_points", "restore_records"}
+BACKUP_STORAGE_DIR = Path("backups")
+FILES_ARCHIVE_PREFIX = "files/"
 
 
 class ManualBackupCreate(BaseModel):
@@ -116,6 +118,111 @@ def _load_snapshot(path: Path) -> dict[str, Any]:
     return snapshot
 
 
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _iter_storage_files(storage_root: Path, excluded_paths: set[Path] | None = None) -> list[tuple[Path, Path]]:
+    excluded_paths = {path.resolve() for path in excluded_paths or set()}
+    if not storage_root.exists():
+        return []
+
+    files: list[tuple[Path, Path]] = []
+    for path in sorted(storage_root.rglob("*")):
+        if not path.is_file():
+            continue
+        resolved = path.resolve()
+        if resolved in excluded_paths:
+            continue
+        relative_path = path.relative_to(storage_root)
+        if relative_path.parts and relative_path.parts[0] == BACKUP_STORAGE_DIR.name:
+            continue
+        files.append((relative_path, path))
+    return files
+
+
+def _write_files_to_archive(
+    archive: zipfile.ZipFile,
+    storage_root: Path,
+    excluded_paths: set[Path] | None = None,
+) -> dict[str, int]:
+    count = 0
+    size_bytes = 0
+    for relative_path, path in _iter_storage_files(storage_root, excluded_paths):
+        archive.write(path, f"{FILES_ARCHIVE_PREFIX}{relative_path.as_posix()}")
+        count += 1
+        size_bytes += path.stat().st_size
+    return {"count": count, "bytes": size_bytes}
+
+
+def _create_file_snapshot(snapshot_path: Path, storage_root: Path) -> dict[str, int | str]:
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(snapshot_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        stats = _write_files_to_archive(archive, storage_root, {snapshot_path})
+        archive.writestr(
+            "manifest.json",
+            json.dumps({"format": "hem-file-snapshot-v1", "files": stats}, ensure_ascii=False, indent=2),
+        )
+    return {"path": str(snapshot_path.relative_to(storage_root)), **stats}
+
+
+def _restore_file_snapshot(snapshot_path: Path, storage_root: Path) -> dict[str, int]:
+    if not snapshot_path.exists():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Recovery file snapshot is missing")
+
+    storage_root.mkdir(parents=True, exist_ok=True)
+    restored_paths: set[Path] = set()
+    restored_count = 0
+    restored_bytes = 0
+
+    try:
+        with zipfile.ZipFile(snapshot_path) as archive:
+            for info in archive.infolist():
+                if info.is_dir() or not info.filename.startswith(FILES_ARCHIVE_PREFIX):
+                    continue
+                relative_name = info.filename[len(FILES_ARCHIVE_PREFIX) :]
+                relative_path = Path(relative_name)
+                if relative_path.is_absolute() or ".." in relative_path.parts:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Recovery file snapshot has unsafe paths",
+                    )
+
+                target_path = storage_root / relative_path
+                if not _is_relative_to(target_path.resolve(), storage_root.resolve()):
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Recovery file snapshot has unsafe paths",
+                    )
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                target_path.write_bytes(archive.read(info))
+                restored_paths.add(relative_path)
+                restored_count += 1
+                restored_bytes += info.file_size
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Recovery file snapshot is unreadable") from exc
+
+    removed_count = 0
+    for relative_path, path in reversed(_iter_storage_files(storage_root)):
+        if relative_path not in restored_paths:
+            path.unlink()
+            removed_count += 1
+
+    for directory in sorted((path for path in storage_root.rglob("*") if path.is_dir()), reverse=True):
+        if directory == storage_root or _is_relative_to(directory, storage_root / BACKUP_STORAGE_DIR):
+            continue
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+
+    return {"restored": restored_count, "bytes": restored_bytes, "removed": removed_count}
+
+
 def _restore_snapshot_data(db: Session, snapshot: dict[str, Any]) -> dict[str, int]:
     tables = _restore_tables(snapshot)
     counts: dict[str, int] = {}
@@ -167,7 +274,7 @@ def create_manual_backup(
         status="running",
         created_by=user.id,
         created_at=created_at,
-        metadata_json={"format": "zip", "contents": ["manifest.json", "database.json"]},
+        metadata_json={"format": "zip", "contents": ["manifest.json", "database.json", "files/"]},
     )
     db.add(record)
     db.flush()
@@ -177,23 +284,30 @@ def create_manual_backup(
     absolute_path.parent.mkdir(parents=True, exist_ok=True)
 
     database = _dump_database(db)
-    manifest = {
-        "id": record.id,
-        "backup_type": record.backup_type,
-        "note": record.note,
-        "created_by": record.created_by,
-        "created_at": created_at.isoformat(),
-        "snapshot_format": SNAPSHOT_FORMAT,
-        "database_tables": sorted(database["tables"]),
-        "excluded_tables": sorted(VOLATILE_TABLES),
-    }
     with zipfile.ZipFile(absolute_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        file_stats = _write_files_to_archive(archive, settings.file_storage_root, {absolute_path})
+        manifest = {
+            "id": record.id,
+            "backup_type": record.backup_type,
+            "note": record.note,
+            "created_by": record.created_by,
+            "created_at": created_at.isoformat(),
+            "snapshot_format": SNAPSHOT_FORMAT,
+            "database_tables": sorted(database["tables"]),
+            "excluded_tables": sorted(VOLATILE_TABLES),
+            "files": file_stats,
+        }
         archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
         archive.writestr("database.json", json.dumps(database, ensure_ascii=False, indent=2))
 
     record.file_path = str(relative_path)
     record.size_bytes = absolute_path.stat().st_size
     record.status = "completed"
+    record.metadata_json = {
+        "format": "zip",
+        "contents": ["manifest.json", "database.json", "files/"],
+        "files": file_stats,
+    }
     db.commit()
     db.refresh(record)
     return record
@@ -239,9 +353,12 @@ def create_recovery_point(
     db.flush()
 
     relative_path = Path("backups") / "recovery-points" / f"{point.id}.json"
+    file_snapshot_relative_path = Path("backups") / "recovery-points" / f"{point.id}.files.zip"
     absolute_path = settings.file_storage_root / relative_path
+    file_snapshot_path = settings.file_storage_root / file_snapshot_relative_path
     absolute_path.parent.mkdir(parents=True, exist_ok=True)
 
+    file_snapshot = _create_file_snapshot(file_snapshot_path, settings.file_storage_root)
     snapshot = _dump_database(db)
     snapshot.update(
         {
@@ -251,6 +368,7 @@ def create_recovery_point(
             "created_at": created_at.isoformat(),
             "database_tables": sorted(snapshot["tables"]),
             "excluded_tables": sorted(VOLATILE_TABLES),
+            "file_snapshot": file_snapshot,
         }
     )
     absolute_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -279,6 +397,10 @@ def restore_recovery_point(
     snapshot = _load_snapshot(snapshot_path)
     try:
         counts = _restore_snapshot_data(db, snapshot)
+        file_snapshot = snapshot.get("file_snapshot")
+        file_counts = None
+        if isinstance(file_snapshot, dict) and isinstance(file_snapshot.get("path"), str):
+            file_counts = _restore_file_snapshot(settings.file_storage_root / file_snapshot["path"], settings.file_storage_root)
     except Exception:
         db.rollback()
         raise
@@ -288,6 +410,7 @@ def restore_recovery_point(
         "description": point.description,
         "mode": "data-restore",
         "counts": counts,
+        "file_counts": file_counts,
         "skipped_tables": sorted(RESTORE_METADATA_TABLES | VOLATILE_TABLES),
     }
     restored_at = utc_now()

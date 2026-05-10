@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, has_permission
 from app.core.models import User
 from app.core.time import utc_now
 from app.modules.cash.queries import get_cash_diary_status
@@ -23,12 +23,12 @@ def dashboard(date: date | None = None, current_time: datetime | None = None, db
     now = _aware(current_time or utc_now())
     return {
         "current_user": {"id": user.id, "username": user.username, "display_name": user.display_name, "role": user.role.name},
-        "messages_today": _messages_today(db, target_date),
-        "open_tasks_today": _open_tasks_today(db, target_date),
-        "open_task_list": _open_task_list(db, target_date),
-        "cash": _cash_status(db, target_date, user.id, now),
-        "invoices": _invoice_status(db, now),
-        "housekeeping": _housekeeping_status(db),
+        "messages_today": _messages_today(db, target_date) if has_permission(user, "messages:read") else 0,
+        "open_tasks_today": _open_tasks_today(db, target_date) if has_permission(user, "tasks:read") else 0,
+        "open_task_list": _open_task_list(db, target_date) if has_permission(user, "tasks:read") else [],
+        "cash": _cash_status(db, target_date, user.id, now) if has_permission(user, "cash:read") else _empty_cash_status(),
+        "invoices": _invoice_status(db, now) if has_permission(user, "invoices:*") else _empty_invoice_status(),
+        "housekeeping": _housekeeping_status(db) if _can_view_housekeeping(user) else _empty_housekeeping_status(),
     }
 
 
@@ -62,12 +62,34 @@ def _cash_status(db: Session, target_date: date, user_id: str, now: datetime) ->
     }
 
 
+def _empty_cash_status() -> dict[str, Any]:
+    return {
+        "missing_morning_cash": False,
+        "missing_evening_cash": False,
+        "cash_start": None,
+        "cash_end": None,
+        "yesterday_cash_end": None,
+    }
+
+
 def _invoice_status(db: Session, now: datetime) -> dict[str, Any]:
     return {"due_or_overdue": count_due_or_overdue_invoices(db, now)}
 
 
+def _empty_invoice_status() -> dict[str, int]:
+    return {"due_or_overdue": 0}
+
+
 def _housekeeping_status(db: Session) -> dict[str, int]:
     return get_housekeeping_dashboard_status(db)
+
+
+def _empty_housekeeping_status() -> dict[str, int]:
+    return {"waiting": 0, "cleaning": 0, "done": 0, "laundry_active": 0, "open_revisions": 0}
+
+
+def _can_view_housekeeping(user: User) -> bool:
+    return has_permission(user, "housekeeping:reception") or has_permission(user, "housekeeping:work")
 
 
 def _aware(value: datetime) -> datetime:

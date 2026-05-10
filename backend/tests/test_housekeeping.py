@@ -97,7 +97,7 @@ def test_assignment_workflow_requires_photos_creates_history_and_unique_minibar_
     assert finished.status_code == 200
     assert finished.json()["status"] == "Hotovo"
 
-    history = client.get("/api/housekeeping/history?month=2026-05")
+    history = client.get("/api/housekeeping/history?month=2026-05", headers=admin_auth)
     assert history.status_code == 200
     assert history.json()[0]["room_label_snapshot"] == "101"
 
@@ -138,7 +138,7 @@ def test_revision_laundry_and_monthly_work_report(client: TestClient, admin_auth
     assert done.status_code == 200
     assert done.json()["status"] == "done"
 
-    report = client.get("/api/housekeeping/reports/monthly-work?month=2026-05")
+    report = client.get("/api/housekeeping/reports/monthly-work?month=2026-05", headers=admin_auth)
     assert report.status_code == 200
     assert report.json()["housekeepers"]["pokojska"]["laundry_count"] == 1
 
@@ -202,3 +202,22 @@ def test_housekeeping_reception_and_work_permissions(client: TestClient, admin_a
 
     accountant_started = client.patch(f"/api/housekeeping/assignments/{assignment['id']}/pause", headers=accountant_auth)
     assert accountant_started.status_code == 403
+
+
+def test_housekeeping_history_and_monthly_report_require_specific_read_permissions(client: TestClient, admin_auth: dict[str, str]) -> None:
+    admin_auth = _login_auth(client, "admin", "061004")
+    housekeeper_auth = _housekeeper_auth(client, admin_auth)
+    reception_auth = _user_auth(client, admin_auth, "recepce", "recepcni")
+    accountant_auth = _user_auth(client, admin_auth, "ucetni", "ucetni")
+
+    housekeeper_history = client.get("/api/housekeeping/history?month=2026-05", headers=housekeeper_auth)
+    assert housekeeper_history.status_code == 403
+
+    reception_history = client.get("/api/housekeeping/history?month=2026-05", headers=reception_auth)
+    assert reception_history.status_code == 200
+
+    housekeeper_report = client.get("/api/housekeeping/reports/monthly-work?month=2026-05", headers=housekeeper_auth)
+    assert housekeeper_report.status_code == 403
+
+    accountant_report = client.get("/api/housekeeping/reports/monthly-work?month=2026-05", headers=accountant_auth)
+    assert accountant_report.status_code == 200

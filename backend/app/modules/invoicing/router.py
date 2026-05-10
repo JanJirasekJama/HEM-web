@@ -314,6 +314,8 @@ def _resolve_service(db: Session, payload: InvoiceCreate) -> tuple[str, float]:
         service = db.get(Service, payload.service_id)
         if service is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown service")
+        if not service.active:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Service is inactive")
         price = service.price if payload.price is None else payload.price
         _validate_price(price)
         return service.name, price
@@ -333,6 +335,8 @@ def _require_due_term(db: Session, due_term_id: str) -> DueTerm:
     due_term = db.get(DueTerm, due_term_id)
     if due_term is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown due term")
+    if not due_term.active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Due term is inactive")
     if due_term.unit not in ALLOWED_DUE_UNITS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Due term unit must be hodiny or dny")
     if due_term.value < 0:

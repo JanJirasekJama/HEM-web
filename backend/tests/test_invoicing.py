@@ -1,14 +1,14 @@
 from fastapi.testclient import TestClient
 
 
-def _service_and_due(client: TestClient, admin_auth: dict[str, str]) -> tuple[str, str]:
-    category = client.post("/api/catalog/service-categories", headers=admin_auth, json={"name": "Wellness"}).json()
+def _service_and_due(client: TestClient, admin_auth: dict[str, str], suffix: str = "") -> tuple[str, str]:
+    category = client.post("/api/catalog/service-categories", headers=admin_auth, json={"name": f"Wellness{suffix}"}).json()
     service = client.post(
         "/api/catalog/services",
         headers=admin_auth,
-        json={"category_id": category["id"], "name": "Vířivka", "type": "wellness", "price": 2000, "active": True},
+        json={"category_id": category["id"], "name": f"Vířivka{suffix}", "type": "wellness", "price": 2000, "active": True},
     ).json()
-    due = client.post("/api/catalog/due-terms", headers=admin_auth, json={"name": "24 hodin", "value": 24, "unit": "hodiny"}).json()
+    due = client.post("/api/catalog/due-terms", headers=admin_auth, json={"name": f"24 hodin{suffix}", "value": 24, "unit": "hodiny"}).json()
     return service["id"], due["id"]
 
 
@@ -59,6 +59,41 @@ def test_invoice_validates_term_price_generates_number_pdf_and_archive(client: T
     archive = client.get("/api/invoices/archive")
     assert archive.status_code == 200
     assert archive.json()[0]["customer_name"] == "Jan Novak"
+
+
+def test_invoice_creation_rejects_inactive_service_and_due_term_but_archive_reads_history(client: TestClient, admin_auth: dict[str, str]) -> None:
+    service_id, due_id = _service_and_due(client, admin_auth, " 2")
+    created = client.post(
+        "/api/invoices",
+        headers=admin_auth,
+        json={"customer_name": "Host", "service_id": service_id, "event_at": "09.05.2026", "due_term_id": due_id},
+    )
+    assert created.status_code == 200
+
+    deactivated_service = client.delete(f"/api/catalog/services/{service_id}", headers=admin_auth)
+    assert deactivated_service.status_code == 200
+    inactive_service = client.post(
+        "/api/invoices",
+        headers=admin_auth,
+        json={"customer_name": "Host", "service_id": service_id, "event_at": "10.05.2026", "due_term_id": due_id},
+    )
+    assert inactive_service.status_code == 400
+    assert "inactive" in inactive_service.json()["detail"]
+
+    service_id, due_id = _service_and_due(client, admin_auth)
+    deactivated_due = client.delete(f"/api/catalog/due-terms/{due_id}", headers=admin_auth)
+    assert deactivated_due.status_code == 200
+    inactive_due = client.post(
+        "/api/invoices",
+        headers=admin_auth,
+        json={"customer_name": "Host", "service_id": service_id, "event_at": "10.05.2026", "due_term_id": due_id},
+    )
+    assert inactive_due.status_code == 400
+    assert "inactive" in inactive_due.json()["detail"]
+
+    archive = client.get("/api/invoices/archive")
+    assert archive.status_code == 200
+    assert archive.json()[0]["id"] == created.json()["id"]
 
 
 def test_invoice_payment_states_manual_toggles_and_csv_export(client: TestClient, admin_auth: dict[str, str]) -> None:

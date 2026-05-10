@@ -196,7 +196,7 @@ def queue_message_email(
     )
     queued_recipients = [recipient.email for recipient in recipients]
 
-    email_settings = _email_settings(db)
+    email_settings = _validated_email_settings(db, queued_recipients)
     subject_template = str(email_settings.get("message_subject_template") or "Vzkazy z recepce - {date}")
     body_template = str(email_settings.get("message_body_template") or "{messages}")
     messages = _messages_for_date(db, payload.message_date)
@@ -225,8 +225,46 @@ def queue_message_email(
     return SendMessageEmailResponse(intent_id=intent.id, queued_recipients=queued_recipients, subject=subject, status=intent.status)
 
 
+def _validated_email_settings(db: Session, recipients: list[str]) -> dict[str, Any]:
+    email_settings = _email_settings(db)
+    normalized = {
+        "server": email_settings.get("server") or email_settings.get("smtp_server"),
+        "port": email_settings.get("port") or email_settings.get("smtp_port"),
+        "username": email_settings.get("username"),
+        "password_secret_ref": email_settings.get("password_secret_ref"),
+        "password": email_settings.get("password"),
+        "sender": email_settings.get("sender"),
+        "message_subject_template": email_settings.get("message_subject_template"),
+        "message_body_template": email_settings.get("message_body_template"),
+    }
+    missing = [key for key in ("server", "port", "username", "sender") if not normalized.get(key)]
+    if not normalized.get("password_secret_ref") and not normalized.get("password"):
+        missing.append("password_secret_ref or password")
+    if not recipients:
+        missing.append("active_recipients")
+    if missing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Missing email settings: {', '.join(missing)}")
+    try:
+        normalized["port"] = int(normalized["port"])
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SMTP port must be a number") from exc
+    if normalized["port"] <= 0 or normalized["port"] > 65535:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SMTP port must be between 1 and 65535")
+    invalid_addresses = [email for email in [str(normalized["sender"]), *recipients] if "@" not in email]
+    if invalid_addresses:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email address")
+    return normalized
+
+
 def _email_settings(db: Session) -> dict[str, Any]:
-    setting = db.get(Setting, "email")
+    direct = _setting_value(db, "email")
+    if direct:
+        return direct
+    return dict((_setting_value(db, "app").get("email") or {}))
+
+
+def _setting_value(db: Session, key: str) -> dict[str, Any]:
+    setting = db.get(Setting, key)
     if setting is None:
         return {}
     return dict(setting.value_json or {})
