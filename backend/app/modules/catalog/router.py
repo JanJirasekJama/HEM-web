@@ -66,7 +66,7 @@ class ServiceRead(CatalogRead):
 class ServiceCreate(BaseModel):
     category_id: str
     name: str = Field(min_length=1, max_length=255)
-    type: str = Field(min_length=1, max_length=64)
+    type: str = Field(default="ostatni", min_length=1, max_length=64)
     price: float = 0
     sort_order: int = 0
     active: bool = True
