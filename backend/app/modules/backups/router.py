@@ -1,22 +1,26 @@
 import json
 import zipfile
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from sqlalchemy import Date, DateTime, Table, delete, insert, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.database import Base, get_db
-from app.core.deps import get_app_settings, get_current_user, require_admin, require_csrf
+from app.core.deps import get_app_settings, require_admin, require_csrf, require_role
 from app.core.models import User
 from app.core.time import utc_now
 from app.modules.backups.models import BackupRecord, RecoveryPoint, RestoreRecord
 
 router = APIRouter(prefix="/api/backups", tags=["backups"])
+
+SNAPSHOT_FORMAT = "hem-db-snapshot-v1"
+VOLATILE_TABLES = {"sessions"}
+RESTORE_METADATA_TABLES = {"backup_records", "recovery_points", "restore_records"}
 
 
 class ManualBackupCreate(BaseModel):
@@ -61,8 +65,84 @@ class RestoreRead(BaseModel):
     metadata: dict[str, Any]
 
 
+def _snapshot_tables() -> list[Table]:
+    return [table for table in Base.metadata.sorted_tables if table.name not in VOLATILE_TABLES]
+
+
+def _restore_tables(snapshot: dict[str, Any]) -> list[Table]:
+    available = snapshot.get("tables", {})
+    return [
+        table
+        for table in Base.metadata.sorted_tables
+        if table.name in available and table.name not in VOLATILE_TABLES and table.name not in RESTORE_METADATA_TABLES
+    ]
+
+
+def _json_value(value: Any) -> Any:
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
+
+def _db_value(column: Any, value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(column.type, DateTime):
+        return datetime.fromisoformat(value)
+    if isinstance(column.type, Date):
+        return date.fromisoformat(value)
+    return value
+
+
+def _dump_database(db: Session) -> dict[str, Any]:
+    tables: dict[str, Any] = {}
+    for table in _snapshot_tables():
+        ordering = list(table.primary_key.columns) or list(table.columns)
+        rows = db.execute(select(table).order_by(*ordering)).mappings().all()
+        tables[table.name] = {
+            "columns": [column.name for column in table.columns],
+            "rows": [{column.name: _json_value(row[column.name]) for column in table.columns} for row in rows],
+        }
+    return {"format": SNAPSHOT_FORMAT, "tables": tables}
+
+
+def _load_snapshot(path: Path) -> dict[str, Any]:
+    try:
+        snapshot = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Recovery snapshot is unreadable") from exc
+    if snapshot.get("format") != SNAPSHOT_FORMAT or not isinstance(snapshot.get("tables"), dict):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Recovery snapshot has unsupported format")
+    return snapshot
+
+
+def _restore_snapshot_data(db: Session, snapshot: dict[str, Any]) -> dict[str, int]:
+    tables = _restore_tables(snapshot)
+    counts: dict[str, int] = {}
+
+    for volatile_table_name in VOLATILE_TABLES:
+        volatile_table = Base.metadata.tables.get(volatile_table_name)
+        if volatile_table is not None:
+            db.execute(delete(volatile_table))
+    for table in reversed(tables):
+        db.execute(delete(table))
+
+    for table in tables:
+        table_snapshot = snapshot["tables"][table.name]
+        columns = {column.name: column for column in table.columns}
+        rows = [
+            {column_name: _db_value(columns[column_name], value) for column_name, value in row.items() if column_name in columns}
+            for row in table_snapshot.get("rows", [])
+        ]
+        if rows:
+            db.execute(insert(table), rows)
+        counts[table.name] = len(rows)
+
+    return counts
+
+
 @router.get("", response_model=list[BackupRead])
-def list_backups(db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> list[BackupRecord]:
+def list_backups(db: Session = Depends(get_db), _: User = Depends(require_role("admin"))) -> list[BackupRecord]:
     return list(
         db.scalars(
             select(BackupRecord)
@@ -87,7 +167,7 @@ def create_manual_backup(
         status="running",
         created_by=user.id,
         created_at=created_at,
-        metadata_json={"format": "zip", "contents": ["manifest.json"]},
+        metadata_json={"format": "zip", "contents": ["manifest.json", "database.json"]},
     )
     db.add(record)
     db.flush()
@@ -96,16 +176,20 @@ def create_manual_backup(
     absolute_path = settings.file_storage_root / relative_path
     absolute_path.parent.mkdir(parents=True, exist_ok=True)
 
+    database = _dump_database(db)
     manifest = {
         "id": record.id,
         "backup_type": record.backup_type,
         "note": record.note,
         "created_by": record.created_by,
         "created_at": created_at.isoformat(),
-        "database_tables": sorted(Base.metadata.tables),
+        "snapshot_format": SNAPSHOT_FORMAT,
+        "database_tables": sorted(database["tables"]),
+        "excluded_tables": sorted(VOLATILE_TABLES),
     }
     with zipfile.ZipFile(absolute_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+        archive.writestr("database.json", json.dumps(database, ensure_ascii=False, indent=2))
 
     record.file_path = str(relative_path)
     record.size_bytes = absolute_path.stat().st_size
@@ -158,13 +242,17 @@ def create_recovery_point(
     absolute_path = settings.file_storage_root / relative_path
     absolute_path.parent.mkdir(parents=True, exist_ok=True)
 
-    snapshot = {
-        "id": point.id,
-        "description": point.description,
-        "created_by": point.created_by,
-        "created_at": created_at.isoformat(),
-        "database_tables": sorted(Base.metadata.tables),
-    }
+    snapshot = _dump_database(db)
+    snapshot.update(
+        {
+            "id": point.id,
+            "description": point.description,
+            "created_by": point.created_by,
+            "created_at": created_at.isoformat(),
+            "database_tables": sorted(snapshot["tables"]),
+            "excluded_tables": sorted(VOLATILE_TABLES),
+        }
+    )
     absolute_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
 
     point.data_snapshot_path = str(relative_path)
@@ -188,10 +276,19 @@ def restore_recovery_point(
     if not snapshot_path.exists():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Recovery snapshot is missing")
 
+    snapshot = _load_snapshot(snapshot_path)
+    try:
+        counts = _restore_snapshot_data(db, snapshot)
+    except Exception:
+        db.rollback()
+        raise
+
     metadata = {
         "snapshot_path": point.data_snapshot_path,
         "description": point.description,
-        "mode": "metadata-only",
+        "mode": "data-restore",
+        "counts": counts,
+        "skipped_tables": sorted(RESTORE_METADATA_TABLES | VOLATILE_TABLES),
     }
     restored_at = utc_now()
     restore = RestoreRecord(

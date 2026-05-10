@@ -26,6 +26,30 @@ def test_service_catalog_preserves_inactive_items_for_history(client: TestClient
     assert archived_read.json()["active"] is False
 
 
+def test_catalog_delete_deactivates_items_instead_of_removing_them(client: TestClient, admin_auth: dict[str, str]) -> None:
+    due = client.post(
+        "/api/catalog/due-terms",
+        headers=admin_auth,
+        json={"name": "7 dní", "value": 7, "unit": "dny", "active": True},
+    )
+    assert due.status_code == 200
+    due_id = due.json()["id"]
+
+    deleted = client.delete(f"/api/catalog/due-terms/{due_id}", headers=admin_auth)
+    assert deleted.status_code == 200
+    assert deleted.json() == {"ok": True}
+
+    assert client.get("/api/catalog/due-terms?active_only=true").json() == []
+    inactive = client.get("/api/catalog/due-terms?active_only=false")
+    assert inactive.status_code == 200
+    assert inactive.json()[0]["id"] == due_id
+    assert inactive.json()[0]["active"] is False
+
+    archived_read = client.get(f"/api/catalog/due-terms/{due_id}")
+    assert archived_read.status_code == 200
+    assert archived_read.json()["active"] is False
+
+
 def test_due_terms_rooms_photo_types_and_email_recipients(client: TestClient, admin_auth: dict[str, str]) -> None:
     due = client.post(
         "/api/catalog/due-terms",

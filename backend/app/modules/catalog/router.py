@@ -199,7 +199,10 @@ def _update(db: Session, item: ModelT, payload: BaseModel) -> ModelT:
 
 
 def _delete(db: Session, item: ModelT) -> dict[str, bool]:
-    db.delete(item)
+    if hasattr(item, "active"):
+        setattr(item, "active", False)
+    else:
+        db.delete(item)
     db.commit()
     return {"ok": True}
 

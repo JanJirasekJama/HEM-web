@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Callable
 
 from fastapi import Cookie, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy import select
@@ -69,15 +70,54 @@ def get_current_user(session: SessionToken = Depends(get_current_session)) -> Us
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:
-    if user.role.name != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
-    return user
+    return _require_role(user, {"admin"})
+
+
+def require_role(*role_names: str) -> Callable[[User], User]:
+    allowed_roles = set(role_names)
+
+    def dependency(user: User = Depends(get_current_user)) -> User:
+        return _require_role(user, allowed_roles)
+
+    return dependency
+
+
+def require_permission(permission_code: str) -> Callable[[User], User]:
+    def dependency(user: User = Depends(get_current_user)) -> User:
+        if not has_permission(user, permission_code):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission required")
+        return user
+
+    return dependency
+
+
+def require_any_permission(*permission_codes: str) -> Callable[[User], User]:
+    def dependency(user: User = Depends(get_current_user)) -> User:
+        if not any(has_permission(user, permission_code) for permission_code in permission_codes):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission required")
+        return user
+
+    return dependency
 
 
 def has_permission(user: User, permission_code: str) -> bool:
     if user.role.name == "admin":
         return True
-    return any(permission.code == permission_code or permission.code == "*" for permission in user.role.permissions)
+    return any(_permission_matches(permission.code, permission_code) for permission in user.role.permissions)
+
+
+def _require_role(user: User, role_names: set[str]) -> User:
+    if user.role.name not in role_names:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Role required")
+    return user
+
+
+def _permission_matches(granted: str, required: str) -> bool:
+    if granted == "*" or granted == required:
+        return True
+    if granted.endswith(":*"):
+        return required.startswith(granted[:-1])
+    return False
 
 
 def delete_expired_sessions(db: Session) -> None:

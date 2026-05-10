@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_csrf
+from app.core.deps import require_permission, require_csrf
 from app.core.models import User
 from app.core.time import utc_now
 from app.modules.cash.models import CashDiaryEntry, CashDiaryHistory, CashShiftLog
@@ -70,7 +70,7 @@ class CashStatusRead(BaseModel):
 
 
 @router.post("/shift-log", response_model=ShiftLogRead, dependencies=[Depends(require_csrf)])
-def create_shift_log(payload: ShiftLogCreate, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> CashShiftLog:
+def create_shift_log(payload: ShiftLogCreate, db: Session = Depends(get_db), _: User = Depends(require_permission("cash:write"))) -> CashShiftLog:
     _require_user(db, payload.user_id)
     shift = CashShiftLog(**payload.model_dump())
     db.add(shift)
@@ -85,7 +85,7 @@ def list_shift_logs(
     date_to: date | None = None,
     user_id: str | None = None,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("cash:read")),
 ) -> list[CashShiftLog]:
     stmt = select(CashShiftLog)
     if user_id:
@@ -98,7 +98,7 @@ def list_shift_logs(
 
 
 @router.post("/diary", response_model=DiaryRead, dependencies=[Depends(require_csrf)])
-def upsert_diary(payload: DiaryUpsert, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> CashDiaryEntry:
+def upsert_diary(payload: DiaryUpsert, db: Session = Depends(get_db), user: User = Depends(require_permission("cash:write"))) -> CashDiaryEntry:
     _require_user(db, payload.user_id)
     entry = db.scalar(select(CashDiaryEntry).where(CashDiaryEntry.entry_date == payload.entry_date, CashDiaryEntry.user_id == payload.user_id))
     action = "updated" if entry else "created"
@@ -125,7 +125,7 @@ def export_diary_csv(
     date_to: date | None = None,
     user_id: str | None = None,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("cash:export")),
 ) -> Response:
     rows = _query_diary(db, date_from, date_to, user_id)
     output = StringIO()
@@ -149,18 +149,18 @@ def list_diary(
     date_to: date | None = None,
     user_id: str | None = None,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("cash:read")),
 ) -> list[CashDiaryEntry]:
     return _query_diary(db, date_from, date_to, user_id)
 
 
 @router.get("/diary/{entry_id}", response_model=DiaryRead)
-def read_diary(entry_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> CashDiaryEntry:
+def read_diary(entry_id: str, db: Session = Depends(get_db), _: User = Depends(require_permission("cash:read"))) -> CashDiaryEntry:
     return _require_diary(db, entry_id)
 
 
 @router.put("/diary/{entry_id}", response_model=DiaryRead, dependencies=[Depends(require_csrf)])
-def update_diary(entry_id: str, payload: DiaryUpsert, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> CashDiaryEntry:
+def update_diary(entry_id: str, payload: DiaryUpsert, db: Session = Depends(get_db), user: User = Depends(require_permission("cash:write"))) -> CashDiaryEntry:
     _require_user(db, payload.user_id)
     entry = _require_diary(db, entry_id)
     duplicate = db.scalar(
@@ -188,7 +188,7 @@ def update_diary(entry_id: str, payload: DiaryUpsert, db: Session = Depends(get_
 
 
 @router.delete("/diary/{entry_id}", dependencies=[Depends(require_csrf)])
-def delete_diary(entry_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict[str, bool]:
+def delete_diary(entry_id: str, db: Session = Depends(get_db), user: User = Depends(require_permission("cash:write"))) -> dict[str, bool]:
     entry = _require_diary(db, entry_id)
     _add_history(db, entry, "deleted", user.id)
     db.delete(entry)
@@ -197,7 +197,7 @@ def delete_diary(entry_id: str, db: Session = Depends(get_db), user: User = Depe
 
 
 @router.get("/diary/{entry_id}/history", response_model=list[DiaryHistoryRead])
-def diary_history(entry_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> list[CashDiaryHistory]:
+def diary_history(entry_id: str, db: Session = Depends(get_db), _: User = Depends(require_permission("cash:read"))) -> list[CashDiaryHistory]:
     _require_diary(db, entry_id)
     return list(db.scalars(select(CashDiaryHistory).where(CashDiaryHistory.diary_entry_id == entry_id).order_by(CashDiaryHistory.created_at)).all())
 
@@ -208,7 +208,7 @@ def cash_status(
     user_id: str,
     at: datetime | None = None,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("cash:read")),
 ) -> CashStatusRead:
     _require_user(db, user_id)
     entry = db.scalar(select(CashDiaryEntry).where(CashDiaryEntry.entry_date == date, CashDiaryEntry.user_id == user_id))

@@ -7,7 +7,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_csrf
+from app.core.deps import require_permission, require_csrf
 from app.core.models import User
 from app.core.time import utc_now
 from app.modules.tasks.models import Task, TaskOccurrenceCompletion
@@ -64,7 +64,7 @@ def _task_payload(task: Task, occurrence_date: date | None = None, completed: bo
 
 
 @router.post("", dependencies=[Depends(require_csrf)])
-def create_task(payload: TaskCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
+def create_task(payload: TaskCreate, db: Session = Depends(get_db), user: User = Depends(require_permission("tasks:write"))) -> dict:
     interval_days = payload.recurrence_interval_days or payload.interval_days
     if payload.recurrence_type == "weekly" and not payload.recurrence_days:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Weekly recurrence requires recurrence_days")
@@ -93,7 +93,7 @@ def create_task(payload: TaskCreate, db: Session = Depends(get_db), user: User =
 
 
 @router.get("/calendar")
-def calendar(date: date, db: Session = Depends(get_db)) -> dict:
+def calendar(date: date, db: Session = Depends(get_db), _: User = Depends(require_permission("tasks:read"))) -> dict:
     candidates = db.scalars(
         select(Task)
         .where(Task.due_date <= date)
@@ -118,7 +118,7 @@ def update_completion(
     task_id: str,
     payload: TaskCompletionUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("tasks:write")),
 ) -> dict:
     task = db.get(Task, task_id)
     if task is None:
@@ -147,7 +147,7 @@ def update_completion(
 
 
 @router.delete("/{task_id}", dependencies=[Depends(require_csrf)])
-def delete_task(task_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> dict[str, bool]:
+def delete_task(task_id: str, db: Session = Depends(get_db), _: User = Depends(require_permission("tasks:write"))) -> dict[str, bool]:
     task = db.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")

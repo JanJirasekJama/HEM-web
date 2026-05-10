@@ -84,3 +84,55 @@ def test_invoice_payment_states_manual_toggles_and_csv_export(client: TestClient
     exported = client.get("/api/invoices/archive/export.csv")
     assert exported.status_code == 200
     assert "invoice_number" in exported.text
+
+
+def test_invoice_pdf_download_email_queue_validation_and_delete(
+    client: TestClient,
+    admin_auth: dict[str, str],
+) -> None:
+    service_id, due_id = _service_and_due(client, admin_auth)
+    invoice = client.post(
+        "/api/invoices",
+        headers=admin_auth,
+        json={
+            "customer_name": "Jan Novak",
+            "customer_email": "jan@example.test",
+            "customer_phone": "+420123456789",
+            "service_id": service_id,
+            "event_at": "09.05.2026 18:30",
+            "due_term_id": due_id,
+            "note": "Rezervace wellness",
+        },
+    ).json()
+    pdf_path = client.app.state.settings.file_storage_root / invoice["pdf_path"]
+    assert pdf_path.exists()
+
+    downloaded = client.get(f"/api/invoices/{invoice['id']}/pdf")
+    assert downloaded.status_code == 200
+    assert downloaded.headers["content-type"] == "application/pdf"
+    assert downloaded.content.startswith(b"%PDF")
+
+    invalid_email = client.post(f"/api/invoices/{invoice['id']}/send-email", headers=admin_auth)
+    assert invalid_email.status_code == 400
+    assert "username" in invalid_email.json()["detail"]
+
+    app_settings = client.get("/api/settings/app").json()["value"]
+    app_settings["email"]["username"] = "smtp-user"
+    app_settings["email"]["password_secret_ref"] = "secret/invoice-smtp"
+    app_settings["email"]["invoice_subject_template"] = "Faktura {invoice_number}"
+    updated_settings = client.put("/api/settings/app", headers=admin_auth, json={"value": app_settings})
+    assert updated_settings.status_code == 200
+
+    queued = client.post(f"/api/invoices/{invoice['id']}/send-email", headers=admin_auth)
+    assert queued.status_code == 200
+    assert queued.json()["status"] == "queued"
+    assert queued.json()["recipient"] == "jan@example.test"
+    assert queued.json()["subject"] == f"Faktura {invoice['invoice_number']}"
+
+    deleted = client.delete(f"/api/invoices/{invoice['id']}", headers=admin_auth)
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] is True
+    assert not pdf_path.exists()
+
+    missing_pdf = client.get(f"/api/invoices/{invoice['id']}/pdf")
+    assert missing_pdf.status_code == 404

@@ -1,15 +1,15 @@
 from calendar import monthrange
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.database import get_db
-from app.core.deps import get_app_settings, get_current_user
-from app.core.models import SessionToken, User
+from app.core.deps import get_app_settings, get_current_user, has_permission, require_csrf
+from app.core.models import User
 from app.core.router import get_notification_queue
 from app.core.schemas import NotificationCreate
 from app.core.time import utc_now
@@ -49,28 +49,23 @@ class RevisionCreate(BaseModel):
     text: str = Field(min_length=1)
 
 
-def _csrf_user(x_csrf_token: str | None = Header(default=None, alias="X-CSRF-Token"), db: Session = Depends(get_db)) -> User:
-    if not x_csrf_token:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid CSRF token")
-    session = db.scalar(select(SessionToken).where(SessionToken.csrf_token == x_csrf_token))
-    if session is None or _same_timezone(session.expires_at) < utc_now():
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid CSRF token")
-    if session.user is None or not session.user.active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive user")
-    return session.user
-
-
-def _csrf_admin(user: User = Depends(_csrf_user)) -> User:
-    if user.role.name != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+def _require_housekeeping_reception(user: User = Depends(get_current_user)) -> User:
+    if not has_permission(user, "housekeeping:reception"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Housekeeping reception permission required")
     return user
 
 
-@router.post("/assignments")
+def _require_housekeeping_work(user: User = Depends(get_current_user)) -> User:
+    if not has_permission(user, "housekeeping:work"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Housekeeping work permission required")
+    return user
+
+
+@router.post("/assignments", dependencies=[Depends(require_csrf)])
 def create_assignments(
     payload: AssignmentCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(_csrf_admin),
+    user: User = Depends(_require_housekeeping_reception),
 ) -> list[dict]:
     required_types = _photo_types(db, payload.required_photo_type_ids)
     assignments: list[HousekeepingAssignment] = []
@@ -103,8 +98,8 @@ def create_assignments(
     return [_assignment_dict(assignment) for assignment in assignments]
 
 
-@router.patch("/assignments/{assignment_id}/start")
-def start_assignment(assignment_id: str, db: Session = Depends(get_db), user: User = Depends(_csrf_user)) -> dict:
+@router.patch("/assignments/{assignment_id}/start", dependencies=[Depends(require_csrf)])
+def start_assignment(assignment_id: str, db: Session = Depends(get_db), user: User = Depends(_require_housekeeping_work)) -> dict:
     assignment = _assignment(db, assignment_id)
     if assignment.status not in {"Prideleno", "Pozastaveno"}:
         return _assignment_dict(assignment)
@@ -118,8 +113,8 @@ def start_assignment(assignment_id: str, db: Session = Depends(get_db), user: Us
     return _assignment_dict(assignment)
 
 
-@router.patch("/assignments/{assignment_id}/pause")
-def pause_assignment(assignment_id: str, db: Session = Depends(get_db), _: User = Depends(_csrf_user)) -> dict:
+@router.patch("/assignments/{assignment_id}/pause", dependencies=[Depends(require_csrf)])
+def pause_assignment(assignment_id: str, db: Session = Depends(get_db), _: User = Depends(_require_housekeeping_work)) -> dict:
     assignment = _assignment(db, assignment_id)
     if assignment.status != "Uklizi se":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assignment is not in progress")
@@ -130,8 +125,8 @@ def pause_assignment(assignment_id: str, db: Session = Depends(get_db), _: User 
     return _assignment_dict(assignment)
 
 
-@router.patch("/assignments/{assignment_id}/resume")
-def resume_assignment(assignment_id: str, db: Session = Depends(get_db), _: User = Depends(_csrf_user)) -> dict:
+@router.patch("/assignments/{assignment_id}/resume", dependencies=[Depends(require_csrf)])
+def resume_assignment(assignment_id: str, db: Session = Depends(get_db), _: User = Depends(_require_housekeeping_work)) -> dict:
     assignment = _assignment(db, assignment_id)
     if assignment.status != "Pozastaveno":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assignment is not paused")
@@ -144,11 +139,11 @@ def resume_assignment(assignment_id: str, db: Session = Depends(get_db), _: User
     return _assignment_dict(assignment)
 
 
-@router.patch("/assignments/{assignment_id}/finish")
+@router.patch("/assignments/{assignment_id}/finish", dependencies=[Depends(require_csrf)])
 def finish_assignment(
     assignment_id: str,
     db: Session = Depends(get_db),
-    user: User = Depends(_csrf_user),
+    user: User = Depends(_require_housekeeping_work),
     queue: NotificationQueue = Depends(get_notification_queue),
 ) -> dict:
     assignment = _assignment(db, assignment_id)
@@ -185,7 +180,7 @@ def finish_assignment(
     return _assignment_dict(assignment)
 
 
-@router.post("/assignments/{assignment_id}/photos")
+@router.post("/assignments/{assignment_id}/photos", dependencies=[Depends(require_csrf)])
 def upload_assignment_photo(
     assignment_id: str,
     task_label: str | None = Form(default=None),
@@ -193,7 +188,7 @@ def upload_assignment_photo(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_app_settings),
-    user: User = Depends(_csrf_user),
+    user: User = Depends(_require_housekeeping_work),
 ) -> dict:
     _assignment(db, assignment_id)
     if photo_task_type_id is not None and db.get(PhotoTaskType, photo_task_type_id) is None:
@@ -212,8 +207,8 @@ def upload_assignment_photo(
     return {"id": photo.id, "assignment_id": assignment_id, "media_file_id": media.id, "public_url": media.public_url}
 
 
-@router.post("/assignments/{assignment_id}/minibar")
-def add_minibar_entry(assignment_id: str, payload: MinibarCreate, db: Session = Depends(get_db), user: User = Depends(_csrf_user)) -> dict:
+@router.post("/assignments/{assignment_id}/minibar", dependencies=[Depends(require_csrf)])
+def add_minibar_entry(assignment_id: str, payload: MinibarCreate, db: Session = Depends(get_db), user: User = Depends(_require_housekeeping_work)) -> dict:
     _assignment(db, assignment_id)
     item = db.get(HousekeepingMinibarItem, payload.item_id)
     if item is None:
@@ -258,8 +253,8 @@ def list_history(month: str, db: Session = Depends(get_db), _: User = Depends(ge
     ]
 
 
-@router.post("/revisions")
-def create_revision(payload: RevisionCreate, db: Session = Depends(get_db), user: User = Depends(_csrf_admin)) -> dict:
+@router.post("/revisions", dependencies=[Depends(require_csrf)])
+def create_revision(payload: RevisionCreate, db: Session = Depends(get_db), user: User = Depends(_require_housekeeping_reception)) -> dict:
     revision = RevisionTask(location=payload.location, text=payload.text, created_by_id=user.id)
     db.add(revision)
     db.commit()
@@ -267,14 +262,14 @@ def create_revision(payload: RevisionCreate, db: Session = Depends(get_db), user
     return _revision_dict(revision)
 
 
-@router.patch("/revisions/{revision_id}/complete")
+@router.patch("/revisions/{revision_id}/complete", dependencies=[Depends(require_csrf)])
 def complete_revision(
     revision_id: str,
     note: str | None = Form(default=None),
     files: list[UploadFile] | None = File(default=None),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_app_settings),
-    user: User = Depends(_csrf_user),
+    user: User = Depends(_require_housekeeping_work),
     queue: NotificationQueue = Depends(get_notification_queue),
 ) -> dict:
     revision = _revision(db, revision_id)
@@ -291,8 +286,8 @@ def complete_revision(
     return _revision_dict(revision)
 
 
-@router.post("/laundry")
-def create_laundry(db: Session = Depends(get_db), user: User = Depends(_csrf_admin)) -> dict:
+@router.post("/laundry", dependencies=[Depends(require_csrf)])
+def create_laundry(db: Session = Depends(get_db), user: User = Depends(_require_housekeeping_reception)) -> dict:
     laundry = LaundryTask(created_by_id=user.id)
     db.add(laundry)
     db.commit()
@@ -300,8 +295,8 @@ def create_laundry(db: Session = Depends(get_db), user: User = Depends(_csrf_adm
     return _laundry_dict(laundry)
 
 
-@router.patch("/laundry/{laundry_id}/accept")
-def accept_laundry(laundry_id: str, db: Session = Depends(get_db), user: User = Depends(_csrf_user)) -> dict:
+@router.patch("/laundry/{laundry_id}/accept", dependencies=[Depends(require_csrf)])
+def accept_laundry(laundry_id: str, db: Session = Depends(get_db), user: User = Depends(_require_housekeeping_work)) -> dict:
     laundry = _laundry(db, laundry_id)
     laundry.status = "accepted"
     laundry.accepted_by_id = user.id
@@ -311,13 +306,13 @@ def accept_laundry(laundry_id: str, db: Session = Depends(get_db), user: User = 
     return _laundry_dict(laundry)
 
 
-@router.post("/laundry/{laundry_id}/photos")
+@router.post("/laundry/{laundry_id}/photos", dependencies=[Depends(require_csrf)])
 def upload_laundry_photo(
     laundry_id: str,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_app_settings),
-    user: User = Depends(_csrf_user),
+    user: User = Depends(_require_housekeeping_work),
 ) -> dict:
     _laundry(db, laundry_id)
     media = save_upload(db, settings, "housekeeping", file, user.id)
@@ -328,11 +323,11 @@ def upload_laundry_photo(
     return {"id": photo.id, "laundry_id": laundry_id, "media_file_id": media.id, "public_url": media.public_url}
 
 
-@router.patch("/laundry/{laundry_id}/done")
+@router.patch("/laundry/{laundry_id}/done", dependencies=[Depends(require_csrf)])
 def finish_laundry(
     laundry_id: str,
     db: Session = Depends(get_db),
-    user: User = Depends(_csrf_user),
+    user: User = Depends(_require_housekeeping_work),
     queue: NotificationQueue = Depends(get_notification_queue),
 ) -> dict:
     laundry = _laundry(db, laundry_id)

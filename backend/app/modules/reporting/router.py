@@ -1,19 +1,20 @@
 import csv
 from collections import Counter, defaultdict
-from datetime import UTC, date, datetime
+from datetime import date
 from io import StringIO
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from app.core.database import Base, get_db
-from app.core.deps import get_app_settings, get_current_user, require_csrf
+from app.core.database import get_db
+from app.core.deps import get_app_settings, require_permission, require_csrf
 from app.core.models import Setting, User
 from app.core.time import utc_now
+from app.modules.inventory.queries import list_inventory_monthly_items
+from app.modules.invoicing.queries import list_invoice_report_rows
 from app.modules.reporting.models import ExportRecord
 
 router = APIRouter(prefix="/api/reports", tags=["reporting"])
@@ -27,7 +28,7 @@ class ExportCreate(BaseModel):
 
 
 @router.get("/invoices/statistics")
-def invoice_statistics(date_from: date, date_to: date, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> dict[str, Any]:
+def invoice_statistics(date_from: date, date_to: date, db: Session = Depends(get_db), _: User = Depends(require_permission("reports:read"))) -> dict[str, Any]:
     invoices = _invoice_rows(db, date_from, date_to)
     prices = [float(row.price or 0) for row in invoices]
     statuses = Counter(str(row.payment_status) for row in invoices)
@@ -50,7 +51,7 @@ def invoice_statistics(date_from: date, date_to: date, db: Session = Depends(get
 
 
 @router.get("/invoices/tax")
-def invoice_tax_report(date_from: date, date_to: date, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> dict[str, Any]:
+def invoice_tax_report(date_from: date, date_to: date, db: Session = Depends(get_db), _: User = Depends(require_permission("reports:read"))) -> dict[str, Any]:
     invoices = _invoice_rows(db, date_from, date_to)
     vat_rate = _tax_rate(db)
     gross = sum(float(row.price or 0) for row in invoices)
@@ -75,15 +76,9 @@ def invoice_tax_report(date_from: date, date_to: date, db: Session = Depends(get
 
 
 @router.get("/inventory/monthly")
-def inventory_monthly(module: str, month: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> dict[str, Any]:
+def inventory_monthly(module: str, month: str, db: Session = Depends(get_db), _: User = Depends(require_permission("reports:read"))) -> dict[str, Any]:
     start, end = _month_bounds(month)
-    entries = Base.metadata.tables["inventory_entries"]
-    items = Base.metadata.tables["inventory_entry_items"]
-    rows = db.execute(
-        select(items.c.item_name, items.c.quantity, items.c.unit_price, items.c.is_custom)
-        .select_from(entries.join(items, entries.c.id == items.c.entry_id))
-        .where(entries.c.module == module, entries.c.entry_date >= start, entries.c.entry_date <= end)
-    ).all()
+    rows = list_inventory_monthly_items(db, module, start, end)
     totals: dict[str, dict[str, float]] = defaultdict(lambda: {"quantity": 0.0, "total_price": 0.0})
     custom_total_price = 0.0
     for row in rows:
@@ -101,7 +96,7 @@ def create_export(
     payload: ExportCreate,
     db: Session = Depends(get_db),
     settings=Depends(get_app_settings),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("exports:create")),
 ) -> dict[str, Any]:
     record = ExportRecord(
         export_type=payload.export_type,
@@ -134,10 +129,7 @@ def create_export(
 
 
 def _invoice_rows(db: Session, date_from: date, date_to: date):
-    invoices = Base.metadata.tables["invoices"]
-    start = datetime.combine(date_from, datetime.min.time(), tzinfo=UTC)
-    end = datetime.combine(date_to, datetime.max.time(), tzinfo=UTC)
-    return db.execute(select(invoices).where(and_(invoices.c.event_at >= start, invoices.c.event_at <= end))).all()
+    return list_invoice_report_rows(db, date_from, date_to)
 
 
 def _tax_rate(db: Session) -> float:

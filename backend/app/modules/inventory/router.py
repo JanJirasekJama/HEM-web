@@ -6,7 +6,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_csrf
+from app.core.deps import require_permission, require_csrf
 from app.core.models import User
 from app.core.time import utc_now
 from app.modules.catalog.models import InventoryItem
@@ -72,7 +72,7 @@ class MonthlyReport(BaseModel):
 
 
 @router.post("/entries", response_model=EntryRead, dependencies=[Depends(require_csrf)])
-def create_entry(payload: EntryCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> InventoryEntry:
+def create_entry(payload: EntryCreate, db: Session = Depends(get_db), user: User = Depends(require_permission("inventory:write"))) -> InventoryEntry:
     _validate_module(payload.module)
     existing = _find_entry(db, payload.entry_date, payload.module)
     if existing is not None:
@@ -93,7 +93,7 @@ def create_entry(payload: EntryCreate, db: Session = Depends(get_db), user: User
 
 
 @router.get("/entries/by-date", response_model=EntryRead)
-def read_entry_by_date(entry_date: date, module: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> InventoryEntry:
+def read_entry_by_date(entry_date: date, module: str, db: Session = Depends(get_db), _: User = Depends(require_permission("inventory:read"))) -> InventoryEntry:
     _validate_module(module)
     entry = _find_entry(db, entry_date, module)
     if entry is None:
@@ -102,7 +102,7 @@ def read_entry_by_date(entry_date: date, module: str, db: Session = Depends(get_
 
 
 @router.put("/entries/{entry_id}", response_model=EntryRead, dependencies=[Depends(require_csrf)])
-def update_entry(entry_id: str, payload: EntryUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> InventoryEntry:
+def update_entry(entry_id: str, payload: EntryUpdate, db: Session = Depends(get_db), user: User = Depends(require_permission("inventory:write"))) -> InventoryEntry:
     entry = _require_entry(db, entry_id)
     new_module = payload.module or entry.module
     new_date = payload.entry_date or entry.entry_date
@@ -130,7 +130,7 @@ def list_archive(
     date_from: date | None = None,
     date_to: date | None = None,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("inventory:read")),
 ) -> list[InventoryEntry]:
     if module is not None:
         _validate_module(module)
@@ -155,7 +155,7 @@ def list_archive(
 
 
 @router.delete("/archive/{entry_id}", dependencies=[Depends(require_csrf)])
-def delete_archive_entry(entry_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> dict[str, bool]:
+def delete_archive_entry(entry_id: str, db: Session = Depends(get_db), _: User = Depends(require_permission("inventory:write"))) -> dict[str, bool]:
     entry = _require_entry(db, entry_id)
     db.delete(entry)
     db.commit()
@@ -163,7 +163,7 @@ def delete_archive_entry(entry_id: str, db: Session = Depends(get_db), _: User =
 
 
 @router.get("/reports/monthly", response_model=MonthlyReport)
-def monthly_report(module: str, month: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> MonthlyReport:
+def monthly_report(module: str, month: str, db: Session = Depends(get_db), _: User = Depends(require_permission("inventory:read"))) -> MonthlyReport:
     _validate_module(module)
     start, end = _month_bounds(month)
     rows = db.scalars(

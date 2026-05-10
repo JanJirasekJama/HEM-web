@@ -1,18 +1,31 @@
 import json
+import zipfile
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 
-def test_manual_backup_recovery_point_and_restore_metadata(client: TestClient, admin_auth: dict[str, str]) -> None:
+def test_manual_backup_recovery_point_and_restore_metadata(
+    client: TestClient,
+    admin_auth: dict[str, str],
+    tmp_path: Path,
+) -> None:
     backup = client.post("/api/backups/manual", headers=admin_auth, json={"note": "Před migrací"})
     assert backup.status_code == 200
-    assert backup.json()["file_path"].endswith(".zip")
-    assert backup.json()["backup_type"] == "manual"
+    backup_data = backup.json()
+    assert backup_data["file_path"].endswith(".zip")
+    assert backup_data["backup_type"] == "manual"
+
+    with zipfile.ZipFile(tmp_path / "files" / backup_data["file_path"]) as archive:
+        assert set(archive.namelist()) == {"manifest.json", "database.json"}
+        database = json.loads(archive.read("database.json"))
+    assert database["format"] == "hem-db-snapshot-v1"
+    assert "users" in database["tables"]
+    assert "sessions" not in database["tables"]
 
     listed = client.get("/api/backups")
     assert listed.status_code == 200
-    assert listed.json()[0]["id"] == backup.json()["id"]
+    assert listed.json()[0]["id"] == backup_data["id"]
 
     recovery = client.post("/api/backups/recovery-points", headers=admin_auth, json={"description": "Bezpečný bod"})
     assert recovery.status_code == 200
@@ -21,6 +34,7 @@ def test_manual_backup_recovery_point_and_restore_metadata(client: TestClient, a
     restored = client.post(f"/api/backups/recovery-points/{recovery.json()['id']}/restore", headers=admin_auth)
     assert restored.status_code == 200
     assert restored.json()["restored"] is True
+    assert restored.json()["metadata"]["mode"] == "data-restore"
 
 
 def test_housekeeping_json_migration_preserves_rooms_users_history_and_photo_refs(

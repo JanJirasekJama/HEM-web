@@ -7,7 +7,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_csrf
+from app.core.deps import require_permission, require_csrf
 from app.core.models import Setting, User
 from app.core.time import utc_now
 from app.modules.catalog.models import EmailRecipient
@@ -67,7 +67,7 @@ class SendMessageEmailResponse(BaseModel):
 
 
 @router.post("/daily", response_model=MessageRead, dependencies=[Depends(require_csrf)])
-def upsert_daily_message(payload: MessageCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> DailyMessage:
+def upsert_daily_message(payload: MessageCreate, db: Session = Depends(get_db), user: User = Depends(require_permission("messages:write"))) -> DailyMessage:
     message = db.scalar(
         select(DailyMessage).where(
             DailyMessage.message_date == payload.message_date,
@@ -98,7 +98,7 @@ def search_history(
     date_to: date | None = None,
     text: str | None = None,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_permission("messages:read")),
 ) -> list[DailyMessage]:
     statement = select(DailyMessage)
     if date_from is not None:
@@ -116,7 +116,7 @@ def create_comment(
     message_id: str,
     payload: CommentCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("messages:write")),
 ) -> MessageComment:
     message = db.get(DailyMessage, message_id)
     if message is None:
@@ -138,7 +138,7 @@ def copy_to_today(
     message_id: str,
     payload: CopyToTodayRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("messages:write")),
 ) -> DailyMessage:
     source = db.get(DailyMessage, message_id)
     if source is None:
@@ -164,7 +164,7 @@ def copy_to_today(
 
 
 @router.get("/{message_id}/export.txt")
-def export_message_txt(message_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)) -> Response:
+def export_message_txt(message_id: str, db: Session = Depends(get_db), _: User = Depends(require_permission("messages:export"))) -> Response:
     message = db.scalar(select(DailyMessage).options(selectinload(DailyMessage.comments)).where(DailyMessage.id == message_id))
     if message is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
@@ -185,7 +185,7 @@ def export_message_txt(message_id: str, db: Session = Depends(get_db), _: User =
 def queue_message_email(
     payload: SendMessageEmailRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_permission("messages:send")),
 ) -> SendMessageEmailResponse:
     recipients = list(
         db.scalars(

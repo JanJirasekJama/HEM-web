@@ -16,3 +16,12 @@ def test_reporting_and_dashboard_do_not_import_private_business_models() -> None
         source = "\n".join(path.read_text(encoding="utf-8") for path in (root / module).glob("*.py"))
         for import_path in forbidden:
             assert import_path not in source
+
+
+def test_reporting_and_dashboard_do_not_read_metadata_tables() -> None:
+    root = Path(__file__).resolve().parents[1] / "app" / "modules"
+
+    for module in ["reporting", "dashboard"]:
+        source = "\n".join(path.read_text(encoding="utf-8") for path in (root / module).glob("*.py"))
+        assert "Base.metadata.tables" not in source
+        assert "metadata.tables" not in source

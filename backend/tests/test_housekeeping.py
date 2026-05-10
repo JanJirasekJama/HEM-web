@@ -10,19 +10,30 @@ def valid_png() -> bytes:
     return output.getvalue()
 
 
-def _housekeeper_auth(client: TestClient, admin_auth: dict[str, str]) -> dict[str, str]:
+def _login_auth(client: TestClient, username: str, password: str) -> dict[str, str]:
+    login = client.post("/api/auth/login", json={"username": username, "password": password})
+    assert login.status_code == 200
+    session = login.cookies.get("hem_session")
+    assert session
+    return {"X-CSRF-Token": login.json()["csrf_token"], "Cookie": f"hem_session={session}"}
+
+
+def _user_auth(client: TestClient, admin_auth: dict[str, str], username: str, role_name: str) -> dict[str, str]:
     created = client.post(
         "/api/users",
         headers=admin_auth,
-        json={"username": "pokojska", "password": "pokojska1", "role_name": "pokojska", "display_name": "Pokojská"},
+        json={"username": username, "password": f"{username}1", "role_name": role_name, "display_name": username},
     )
     assert created.status_code == 200
-    login = client.post("/api/auth/login", json={"username": "pokojska", "password": "pokojska1"})
-    assert login.status_code == 200
-    return {"X-CSRF-Token": login.json()["csrf_token"]}
+    return _login_auth(client, username, f"{username}1")
+
+
+def _housekeeper_auth(client: TestClient, admin_auth: dict[str, str]) -> dict[str, str]:
+    return _user_auth(client, admin_auth, "pokojska", "pokojska")
 
 
 def test_assignment_workflow_requires_photos_creates_history_and_unique_minibar_entries(client: TestClient, admin_auth: dict[str, str]) -> None:
+    admin_auth = _login_auth(client, "admin", "061004")
     room = client.post("/api/catalog/hotel-rooms", headers=admin_auth, json={"label": "101"}).json()
     photo_type = client.post("/api/catalog/photo-task-types", headers=admin_auth, json={"name": "Postel"}).json()
     minibar_item = client.post("/api/catalog/housekeeping-minibar-items", headers=admin_auth, json={"name": "Voda"}).json()
@@ -92,6 +103,7 @@ def test_assignment_workflow_requires_photos_creates_history_and_unique_minibar_
 
 
 def test_revision_laundry_and_monthly_work_report(client: TestClient, admin_auth: dict[str, str]) -> None:
+    admin_auth = _login_auth(client, "admin", "061004")
     housekeeper_auth = _housekeeper_auth(client, admin_auth)
 
     revision = client.post(
@@ -129,3 +141,64 @@ def test_revision_laundry_and_monthly_work_report(client: TestClient, admin_auth
     report = client.get("/api/housekeeping/reports/monthly-work?month=2026-05")
     assert report.status_code == 200
     assert report.json()["housekeepers"]["pokojska"]["laundry_count"] == 1
+
+
+def test_housekeeping_mutations_require_cookie_bound_csrf(client: TestClient, admin_auth: dict[str, str]) -> None:
+    admin_auth = _login_auth(client, "admin", "061004")
+    room = client.post("/api/catalog/hotel-rooms", headers=admin_auth, json={"label": "102"}).json()
+    csrf_only = {"X-CSRF-Token": admin_auth["X-CSRF-Token"]}
+
+    client.cookies.clear()
+    response = client.post(
+        "/api/housekeeping/assignments",
+        headers=csrf_only,
+        json={"room_ids": [room["id"]], "work_type": "Odjezd", "priority": "Normalni"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_housekeeping_reception_and_work_permissions(client: TestClient, admin_auth: dict[str, str]) -> None:
+    admin_auth = _login_auth(client, "admin", "061004")
+    room = client.post("/api/catalog/hotel-rooms", headers=admin_auth, json={"label": "103"}).json()
+    housekeeper_auth = _housekeeper_auth(client, admin_auth)
+    reception_auth = _user_auth(client, admin_auth, "recepce", "recepcni")
+    accountant_auth = _user_auth(client, admin_auth, "ucetni", "ucetni")
+
+    reception_created = client.post(
+        "/api/housekeeping/assignments",
+        headers=reception_auth,
+        json={"room_ids": [room["id"]], "work_type": "Prijezd", "priority": "Normalni"},
+    )
+    assert reception_created.status_code == 200
+    assignment = reception_created.json()[0]
+
+    admin_created = client.post(
+        "/api/housekeeping/revisions",
+        headers=admin_auth,
+        json={"location": "Sklad", "text": "Zkontrolovat zásoby"},
+    )
+    assert admin_created.status_code == 200
+
+    housekeeper_created = client.post(
+        "/api/housekeeping/assignments",
+        headers=housekeeper_auth,
+        json={"room_ids": [room["id"]], "work_type": "Prijezd", "priority": "Normalni"},
+    )
+    assert housekeeper_created.status_code == 403
+
+    accountant_created = client.post(
+        "/api/housekeeping/assignments",
+        headers=accountant_auth,
+        json={"room_ids": [room["id"]], "work_type": "Prijezd", "priority": "Normalni"},
+    )
+    assert accountant_created.status_code == 403
+
+    started = client.patch(f"/api/housekeeping/assignments/{assignment['id']}/start", headers=housekeeper_auth)
+    assert started.status_code == 200
+
+    reception_started = client.patch(f"/api/housekeeping/assignments/{assignment['id']}/pause", headers=reception_auth)
+    assert reception_started.status_code == 403
+
+    accountant_started = client.patch(f"/api/housekeeping/assignments/{assignment['id']}/pause", headers=accountant_auth)
+    assert accountant_started.status_code == 403
