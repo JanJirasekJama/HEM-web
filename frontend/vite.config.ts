@@ -11,7 +11,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:8000',
+      '/api': process.env.VITE_BACKEND_TARGET ?? 'http://127.0.0.1:8000',
     },
   },
   plugins: [react()],
