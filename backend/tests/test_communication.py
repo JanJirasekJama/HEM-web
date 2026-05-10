@@ -46,7 +46,7 @@ def test_message_comments_export_copy_and_email_queue(client: TestClient, admin_
     assert exported.status_code == 200
     assert "Wellness večer" in exported.text
 
-    client.post("/api/catalog/email-recipients", headers=admin_auth, json={"name": "Recepce", "email": "recepce@example.test", "active": True})
+    client.post("/api/catalog/email-recipients", headers=admin_auth, json={"name": "Recepce", "email": "recepce@example.com", "active": True})
     app_settings = client.get("/api/settings/app").json()["value"]
     app_settings["email"]["username"] = "smtp-user"
     app_settings["email"]["password_secret_ref"] = "secret/message-smtp"
@@ -59,7 +59,7 @@ def test_message_comments_export_copy_and_email_queue(client: TestClient, admin_
         json={"message_date": "2026-05-09", "counts": {"arrivals": 1, "departures": 2, "stayovers": 3, "wellnesses": 4}},
     )
     assert sent.status_code == 200
-    assert sent.json()["queued_recipients"] == ["recepce@example.test"]
+    assert sent.json()["queued_recipients"] == ["recepce@example.com"]
 
 
 def test_message_email_requires_smtp_config_and_active_recipients(client: TestClient, admin_auth: dict[str, str]) -> None:
@@ -75,7 +75,7 @@ def test_message_email_requires_smtp_config_and_active_recipients(client: TestCl
     inactive = client.post(
         "/api/catalog/email-recipients",
         headers=admin_auth,
-        json={"name": "Neaktivni", "email": "neaktivni@example.test", "active": False},
+        json={"name": "Neaktivni", "email": "neaktivni@example.com", "active": False},
     )
     assert inactive.status_code == 200
 
@@ -96,7 +96,7 @@ def test_message_email_requires_smtp_config_and_active_recipients(client: TestCl
     active = client.post(
         "/api/catalog/email-recipients",
         headers=admin_auth,
-        json={"name": "Recepce", "email": "recepce@example.test", "active": True},
+        json={"name": "Recepce", "email": "recepce@example.com", "active": True},
     )
     assert active.status_code == 200
 
@@ -106,4 +106,34 @@ def test_message_email_requires_smtp_config_and_active_recipients(client: TestCl
         json={"message_date": "2026-05-09"},
     )
     assert queued.status_code == 200
-    assert queued.json()["queued_recipients"] == ["recepce@example.test"]
+    assert queued.json()["queued_recipients"] == ["recepce@example.com"]
+
+
+def test_message_email_rejects_malformed_sender_and_recipients(client: TestClient, admin_auth: dict[str, str]) -> None:
+    app_settings = client.get("/api/settings/app").json()["value"]
+    app_settings["email"]["username"] = "smtp-user"
+    app_settings["email"]["password"] = "smtp-password"
+    app_settings["email"]["sender"] = "a@"
+    updated_settings = client.put("/api/settings/app", headers=admin_auth, json={"value": app_settings})
+    assert updated_settings.status_code == 200
+
+    active = client.post(
+        "/api/catalog/email-recipients",
+        headers=admin_auth,
+        json={"name": "Recepce", "email": "recepce@example.com", "active": True},
+    )
+    assert active.status_code == 200
+
+    invalid_sender = client.post("/api/messages/send-email", headers=admin_auth, json={"message_date": "2026-05-09"})
+    assert invalid_sender.status_code == 400
+    assert "Invalid email address" in invalid_sender.json()["detail"]
+
+    app_settings["email"]["sender"] = "recepce@example.com"
+    updated_settings = client.put("/api/settings/app", headers=admin_auth, json={"value": app_settings})
+    assert updated_settings.status_code == 200
+    changed = client.patch(f"/api/catalog/email-recipients/{active.json()['id']}", headers=admin_auth, json={"email": "@"})
+    assert changed.status_code == 200
+
+    invalid_recipient = client.post("/api/messages/send-email", headers=admin_auth, json={"message_date": "2026-05-09"})
+    assert invalid_recipient.status_code == 400
+    assert "Invalid email address" in invalid_recipient.json()["detail"]

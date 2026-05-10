@@ -2,7 +2,7 @@ from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, TypeAdapter, ValidationError
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -14,6 +14,7 @@ from app.modules.catalog.models import EmailRecipient
 from app.modules.communication.models import DailyMessage, MessageComment, MessageEmailIntent
 
 router = APIRouter(prefix="/api/messages", tags=["communication"])
+EMAIL_ADDRESS = TypeAdapter(EmailStr)
 
 
 class MessageCreate(BaseModel):
@@ -250,10 +251,18 @@ def _validated_email_settings(db: Session, recipients: list[str]) -> dict[str, A
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SMTP port must be a number") from exc
     if normalized["port"] <= 0 or normalized["port"] > 65535:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SMTP port must be between 1 and 65535")
-    invalid_addresses = [email for email in [str(normalized["sender"]), *recipients] if "@" not in email]
+    invalid_addresses = [email for email in [str(normalized["sender"]), *recipients] if not _is_valid_email(email)]
     if invalid_addresses:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email address")
     return normalized
+
+
+def _is_valid_email(value: str) -> bool:
+    try:
+        EMAIL_ADDRESS.validate_python(value)
+    except ValidationError:
+        return False
+    return True
 
 
 def _email_settings(db: Session) -> dict[str, Any]:
